@@ -47,7 +47,7 @@ export async function loadCharges():Promise<ChargeRecord[]>{
   const ids=[...new Set((data??[]).map(c=>c.client_id).filter(Boolean))];
   const {data:clients,error:clientError}=ids.length?await supabase.from("clients").select("id,name").in("id",ids):{data:[],error:null} as any;
   if(clientError) throw clientError;
-  const map=new Map((clients??[]).map(c=>[c.id,c.name]));
+  const map=new Map<string,string>((clients??[]).map(c=>[c.id,String(c.name)]));
   return (data??[]).map(c=>({id:c.id,chargeId:c.charge_id,client:map.get(c.client_id)||"—",clientId:c.client_id||null,location:c.location??"",logistics:num(c.logistics),accommodation:num(c.accommodation),swap:num(c.swap),deinstallation:num(c.deinstallation),reinstallation:num(c.reinstallation),healthCheck:num(c.health_check),simReplacement:num(c.sim_replacement),others:num(c.others),status:c.paid_or_approved??"Pending"}));
 }
 
@@ -58,7 +58,7 @@ export async function loadWeekly():Promise<WeeklyRecord[]>{
   const ids=[...new Set((data??[]).map(x=>x.technician_id))];
   const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as any;
   if(profileError) throw profileError;
-  const map=new Map((profiles??[]).map(p=>[p.id,p.full_name]));
+  const map=new Map<string,string>((profiles??[]).map(p=>[p.id,String(p.full_name)]));
   return (data??[]).map(x=>({id:x.id,technician:map.get(x.technician_id)||"—",technicianId:x.technician_id,week:new Date(`${x.week_start}T00:00:00`).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),weekStart:x.week_start,projects:Number(x.projects_completed),vehiclesCompleted:Number(x.vehicles_completed),date:new Date(x.updated_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),remarks:x.remarks??""}));
 }
 
@@ -82,7 +82,6 @@ export async function createClient(input:{name:string;contactPerson?:string;phon
   if(error) throw error;
   return data.id as string;
 }
-
 export async function updateClient(id:string,input:Record<string,unknown>,role:Role){
   if(!supabase) return;
   if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to edit a client.");
@@ -102,7 +101,6 @@ export async function createCharge(input:{clientId?:string|null;location?:string
   if(error) throw error;
   return chargeId;
 }
-
 export async function updateCharge(id:string,input:Record<string,unknown>,role:Role){
   if(!supabase) return;
   if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to edit miscellaneous charges.");
@@ -117,14 +115,12 @@ export async function createCompletion(input:{jobId?:string|null;deviceId:string
   if(error) throw error;
   return data.id as string;
 }
-
 export async function addCompletionRemark(id:string,remark:string,role:Role){
   if(!supabase) return;
   if(!(role==="Super Admin"||role==="Operations")) throw new Error("You are not permitted to add a remark.");
   const {error}=await supabase.from("job_completions").update({remarks:remark}).eq("id",id);
   if(error) throw error;
 }
-
 export async function createStock(input:Record<string,unknown>,role:Role){
   if(!supabase) return null;
   if(role!=="Super Admin") throw new Error("Only Super Admin can create stock records.");
@@ -132,14 +128,12 @@ export async function createStock(input:Record<string,unknown>,role:Role){
   if(error) throw error;
   return data.id as string;
 }
-
 export async function updateStock(id:string,input:Record<string,unknown>,role:Role){
   if(!supabase) return;
   if(!(role==="Super Admin"||role==="Operations"||role==="Finance")) throw new Error("You are not permitted to edit Used Stock.");
   const {error}=await supabase.from("stock_transactions").update(input).eq("id",id);
   if(error) throw error;
 }
-
 export async function upsertWeekly(input:{technicianId:string;weekStart:string;projects:number;vehiclesCompleted:number;remarks?:string},role:Role){
   if(!supabase) return null;
   if(!(role==="Super Admin"||role==="Operations")) throw new Error("You are not permitted to edit the weekly technician report.");
