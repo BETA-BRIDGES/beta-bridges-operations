@@ -1,9 +1,13 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ROLES, Role, can, canCreate } from "../lib/permissions";
+import { supabase } from "../lib/supabase";
 
 type Job={jobId:string;client:string;vehicles:number;date:string;technician:string;status:string};
 type Task={id:string;title:string;assignee:string;due:string;status:string};
+
+type Profile={full_name:string;email:string;role:Role;active:boolean};
 
 const initialJobs:Job[]=[
   {jobId:"BB-JOB-20260917-001",client:"Leadway",vehicles:15,date:"17 Sep 2026",technician:"Unassigned",status:"Pending"},
@@ -18,7 +22,14 @@ const initialTasks:Task[]=[
 const modules=["Daily Job Listing","Daily Job Done","Used Stock","Techie Weekly Activity","Miscellaneous Charges","Client Data","Tasks"];
 
 export default function Home(){
-  const [role,setRole]=useState<Role>("Super Admin");
+  const router=useRouter();
+  const [authLoading,setAuthLoading]=useState(Boolean(supabase));
+  const [profile,setProfile]=useState<Profile|null>(null);
+  const [profileError,setProfileError]=useState("");
+  const [bootstrapName,setBootstrapName]=useState("");
+  const [bootstrapBusy,setBootstrapBusy]=useState(false);
+  const [demoRole,setDemoRole]=useState<Role>("Super Admin");
+  const role:Role=profile?.role??(supabase?"Viewer":demoRole);
   const [module,setModule]=useState("Dashboard");
   const [jobs,setJobs]=useState<Job[]>(initialJobs);
   const [tasks,setTasks]=useState<Task[]>(initialTasks);
@@ -26,9 +37,43 @@ export default function Home(){
   const allowed=useMemo(()=>modules.filter(m=>can(role,m,"view")),[role]);
   const shownJobs=role==="Field Technician"?jobs.filter(j=>j.technician!=="Unassigned"):jobs;
 
+  useEffect(()=>{
+    if(!supabase){setAuthLoading(false);return;}
+    let mounted=true;
+    async function load(){
+      const {data:{session}}=await supabase.auth.getSession();
+      if(!mounted) return;
+      if(!session){router.replace("/login");return;}
+      const {data,error}=await supabase.from("profiles").select("full_name,email,role,active").eq("id",session.user.id).maybeSingle();
+      if(!mounted) return;
+      if(error){setProfileError(error.message);}
+      else if(data){setProfile(data as Profile);setProfileError("");}
+      else {setProfile(null);setProfileError("");}
+      setAuthLoading(false);
+    }
+    load();
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{
+      if(!session) router.replace("/login");
+    });
+    return()=>{mounted=false;subscription.unsubscribe();};
+  },[router]);
+
+  async function signOut(){if(supabase){await supabase.auth.signOut();} else {setModule("Dashboard");setDemoRole("Super Admin");}}
+
+  async function bootstrap(){
+    if(!supabase||!bootstrapName.trim()) return;
+    setBootstrapBusy(true);setProfileError("");
+    const {data:{session}}=await supabase.auth.getSession();
+    if(!session){router.replace("/login");return;}
+    const {data,error}=await supabase.rpc("bootstrap_first_super_admin",{p_full_name:bootstrapName.trim(),p_email:session.user.email??""});
+    setBootstrapBusy(false);
+    if(error){setProfileError(error.message);return;}
+    if(data){setProfile(data as Profile);}
+  }
+
   function addJob(){
     const number=jobs.length+1;
-    setJobs([...jobs,{jobId:`BB-JOB-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${String(number).padStart(3,"0")}`,client:"New Client",vehicles:1,date:"17 Sep 2026",technician:"Unassigned",status:"Pending"}]);
+    setJobs([...jobs,{jobId:`BB-JOB-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${String(number).padStart(3,"0")}`,client:"New Client",vehicles:1,date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),technician:"Unassigned",status:"Pending"}]);
     setModal(false);
   }
   function addTask(){
@@ -37,14 +82,18 @@ export default function Home(){
     setModal(false);
   }
 
+  if(authLoading){return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Loading Operations Portal</h1><p className="muted">Checking your assigned account and permissions…</p></section></main>}
+  if(supabase&&!profile){return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Complete administrator setup</h1><p className="muted">Your account is authenticated, but no Beta Bridges profile exists yet. The first profile created through this screen becomes the initial Super Admin.</p><label>Full name<input value={bootstrapName} onChange={e=>setBootstrapName(e.target.value)} placeholder="Your full name"/></label>{profileError&&<div className="login-error">{profileError}</div>}<button className="btn primary" disabled={bootstrapBusy||!bootstrapName.trim()} onClick={bootstrap}>{bootstrapBusy?"Setting up…":"Create initial Super Admin"}</button></section></main>}
+
   return <div className="app">
     <aside className="sidebar"><div className="brand">BETA BRIDGES</div><div className="side-note">Operations Management</div><nav className="nav">
       <a className={module==="Dashboard"?"active":""} onClick={()=>setModule("Dashboard")}>Dashboard</a>
       {allowed.map(m=><a key={m} className={module===m?"active":""} onClick={()=>setModule(m)}>{m}</a>)}
       {role==="Super Admin"&&<a className={module==="Administration"?"active":""} onClick={()=>setModule("Administration")}>Administration</a>}
     </nav></aside>
-    <main className="main"><header className="topbar"><div><h1 className="page-title">{module}</h1><div className="muted">Central operations workspace</div></div><select value={role} onChange={e=>{setRole(e.target.value as Role);setModule("Dashboard")}} className="role-select">{ROLES.map(r=><option key={r}>{r}</option>)}</select></header>
+    <main className="main"><header className="topbar"><div><h1 className="page-title">{module}</h1><div className="muted">Central operations workspace</div></div><div className="topbar-actions">{supabase?<div className="user-chip"><strong>{profile?.full_name||profile?.email}</strong><span>{role}</span></div>:<select value={demoRole} onChange={e=>{setDemoRole(e.target.value as Role);setModule("Dashboard")}} className="role-select">{ROLES.map(r=><option key={r}>{r}</option>)}</select>}{supabase&&<button className="btn" onClick={signOut}>Sign out</button>}</div></header>
 
+      {profileError&&<div className="login-error page-error">{profileError}</div>}
       {module==="Dashboard"&&<><section className="grid">{[["Scheduled projects",String(jobs.length+15)],["Vehicles scheduled",String(jobs.reduce((n,j)=>n+j.vehicles,0)+128)],["Completed today","32"],["Pending tasks",String(tasks.filter(t=>t.status!=="Completed").length)]].map(x=><div className="card" key={x[0]}><div className="muted">{x[0]}</div><div className="stat">{x[1]}</div></div>)}</section><section className="section two"><div className="card"><h3>Today's job queue</h3><Table columns={["Job ID","Client","Vehicles","Technician","Status"]} rows={shownJobs.map(j=>[j.jobId,j.client,String(j.vehicles),j.technician,j.status])}/></div><div className="card"><h3>Open tasks</h3>{tasks.map(t=><div className="task" key={t.id}><strong>{t.title}</strong><span>{t.assignee} · {t.due}</span><em>{t.status}</em></div>)}</div></section></>}
 
       {module==="Daily Job Listing"&&<Module title="Daily Job Listing" subtitle="NUMBER OF JOBS means the number of vehicles covered by this project." columns={["Job ID","NUMBER OF JOBS / Vehicles","Client","Date","TSS Officer","Techie Assigned","Status"]} rows={jobs.map(j=>[j.jobId,String(j.vehicles),j.client,j.date,"TSS Officer",j.technician,j.status])} edit={can(role,module,"edit")} create={canCreate(role,module)} onAdd={()=>setModal(true)}/>} 
@@ -55,7 +104,7 @@ export default function Home(){
       {module==="Client Data"&&<Module title="Client Data List" subtitle="Master client directory used across jobs and billing." columns={["Client","Contact","Phone","Email","Location","Status"]} rows={[["Leadway","Desk Officer","0800••••••","ops@example.com","Lagos","Active"],["Friesland","Fleet Desk","0800••••••","fleet@example.com","Lagos","Active"],["Noortakaful","Operations","0800••••••","ops@example.com","Abuja","Active"]]} edit={can(role,module,"edit")} create={canCreate(role,module)} onAdd={()=>setModal(true)}/>} 
       {module==="Tasks"&&<Module title="Tasks & Reminders" subtitle="Assign work, monitor progress and record completion." columns={["Task ID","Title","Assignee","Priority","Due","Status"]} rows={tasks.map(t=>[t.id,t.title,t.assignee,"Normal",t.due,t.status])} edit={can(role,module,"edit")} create={canCreate(role,module)} onAdd={()=>setModal(true)}/>} 
       {module==="Administration"&&<div className="two"><div className="card"><h3>Roles & Access</h3>{ROLES.map(r=><div className="task" key={r}><strong>{r}</strong><span>{r==="Super Admin"?"Full access":"Configured permission set"}</span></div>)}</div><div className="card"><h3>Google Sheets</h3><p className="muted">Six legacy sheets are designed to connect through stable IDs and module mappings.</p><span className="badge warn">Awaiting Google authorization</span></div></div>}
-      <div className="build-note">Application stage: functional UI, role permissions, local create flows and Supabase schema. Database authentication and Google synchronization are integration steps that follow.</div>
+      <div className="build-note">Application stage: authenticated UI, role permissions, local create flows and Supabase security schema. Google synchronization remains an integration step.</div>
     </main>
     {modal&&<div className="modal-backdrop"><div className="modal"><h3>Create {module}</h3><p className="muted">This local MVP action validates the workflow. The same form will persist to Supabase once connected.</p><div className="form-grid"><label>Module<input value={module} readOnly/></label><label>Role<input value={role} readOnly/></label></div><div className="modal-actions"><button className="btn" onClick={()=>setModal(false)}>Cancel</button><button className="btn primary" onClick={module==="Tasks"?addTask:addJob}>Create record</button></div></div></div>}
   </div>
