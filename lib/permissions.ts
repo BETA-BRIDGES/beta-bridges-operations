@@ -17,6 +17,8 @@ const fieldRules:Record<string,Partial<Record<Role,{editable?:string[];readonly?
 };
 
 export function can(role:Role,module:string,action:string){return role==="Super Admin"||permissions[module]?.[role]?.includes(action)===true}
+export function canCreate(role:Role,module:string){return can(role,module,"create")}
+export function canCopy(role:Role,module:string){return can(role,module,"copy")}
 export function canEditField(role:Role,module:string,field:string){
   if(role==="Super Admin") return true;
   const rule=fieldRules[module]?.[role];

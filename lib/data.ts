@@ -1,8 +1,8 @@
 import { supabase } from "./supabase";
 import type { Role } from "./permissions";
 
-export type AppJob={jobId:string;client:string;vehicles:number;date:string;technician:string;status:string};
-export type AppTask={id:string;title:string;assignee:string;due:string;status:string};
+export type AppJob={id:string;jobId:string;client:string;clientId:string|null;vehicles:number;date:string;technician:string;technicianId:string|null;status:string;location:string};
+export type AppTask={id:string;taskKey:string;title:string;assignee:string;assigneeId:string|null;due:string;status:string};
 
 function formatDate(value:string|null){
   if(!value) return "—";
@@ -11,7 +11,7 @@ function formatDate(value:string|null){
 
 export async function loadJobs():Promise<AppJob[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,assigned_technician_id,status").order("scheduled_date",{ascending:true});
+  const {data,error}=await supabase.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,assigned_technician_id,status,location").order("scheduled_date",{ascending:true});
   if(error) throw error;
   const clientIds=[...new Set((data??[]).map(x=>x.client_id).filter(Boolean))];
   const techIds=[...new Set((data??[]).map(x=>x.assigned_technician_id).filter(Boolean))];
@@ -23,7 +23,7 @@ export async function loadJobs():Promise<AppJob[]>{
   if(techError) throw techError;
   const clientMap=new Map((clients??[]).map(c=>[c.id,c.name]));
   const techMap=new Map((techs??[]).map(t=>[t.id,t.full_name]));
-  return (data??[]).map(j=>({jobId:j.job_id,client:clientMap.get(j.client_id)||"—",vehicles:j.number_of_vehicles,date:formatDate(j.scheduled_date),technician:techMap.get(j.assigned_technician_id)||"Unassigned",status:j.status}));
+  return (data??[]).map(j=>({id:j.id,jobId:j.job_id,client:clientMap.get(j.client_id)||"—",clientId:j.client_id||null,vehicles:j.number_of_vehicles,date:formatDate(j.scheduled_date),technician:techMap.get(j.assigned_technician_id)||"Unassigned",technicianId:j.assigned_technician_id||null,status:j.status,location:j.location||""}));
 }
 
 export async function loadTasks():Promise<AppTask[]>{
@@ -34,28 +34,63 @@ export async function loadTasks():Promise<AppTask[]>{
   const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as any;
   if(profileError) throw profileError;
   const map=new Map((profiles??[]).map(p=>[p.id,p.full_name]));
-  return (data??[]).map(t=>({id:t.task_id,title:t.title,assignee:map.get(t.assigned_to)||"Unassigned",due:t.due_at?new Date(t.due_at).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—",status:t.status}));
+  return (data??[]).map(t=>({id:t.id,taskKey:t.task_id,title:t.title,assignee:map.get(t.assigned_to)||"Unassigned",assigneeId:t.assigned_to||null,due:t.due_at?new Date(t.due_at).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—",status:t.status}));
 }
 
-export async function createJob(input:{clientId?:string|null;numberOfVehicles:number;scheduledDate:string;location?:string;priority?:string;description?:string},role:Role){
+export async function createJob(input:{clientId?:string|null;numberOfVehicles:number;scheduledDate:string;location?:string;vehicleMake?:string;priority?:string;description?:string;tssOfficerId?:string|null},role:Role){
   if(!supabase) return null;
   if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to create a job.");
   const stamp=new Date().toISOString().slice(0,10).replaceAll("-","");
-  const {data:latest}=await supabase.from("jobs").select("job_id").like("job_id",`BB-JOB-${stamp}-%`).order("job_id",{ascending:false}).limit(1);
+  const {data:latest,error:latestError}=await supabase.from("jobs").select("job_id").like("job_id",`BB-JOB-${stamp}-%`).order("job_id",{ascending:false}).limit(1);
+  if(latestError) throw latestError;
   const next=(latest?.[0]?.job_id?.split("-").pop()?Number(latest[0].job_id.split("-").pop()):0)+1;
   const jobId=`BB-JOB-${stamp}-${String(next).padStart(3,"0")}`;
-  const {error}=await supabase.from("jobs").insert({job_id:jobId,client_id:input.clientId||null,number_of_vehicles:Math.max(1,input.numberOfVehicles),scheduled_date:input.scheduledDate,location:input.location||null,priority:input.priority||"Normal",description:input.description||null,status:"Pending"});
+  const {error}=await supabase.from("jobs").insert({job_id:jobId,client_id:input.clientId||null,number_of_vehicles:Math.max(1,input.numberOfVehicles),scheduled_date:input.scheduledDate,location:input.location||null,vehicle_make:input.vehicleMake||null,tss_officer_id:input.tssOfficerId||null,priority:input.priority||"Normal",description:input.description||null,status:"Pending"});
   if(error) throw error;
   return jobId;
 }
 
-export async function createTask(input:{title:string;description?:string;dueAt?:string|null;assignedTo?:string|null},role:Role,creatorId:string){
+export async function updateJob(id:string,input:Record<string,unknown>,role:Role){
+  if(!supabase) return;
+  if(role!=="Super Admin"&&role!=="TSS Officer") throw new Error("You are not permitted to edit this job.");
+  if(role!=="Super Admin" && Object.prototype.hasOwnProperty.call(input,"assigned_technician_id")) throw new Error("TSS Officer cannot change Techie Assigned.");
+  const {error}=await supabase.from("jobs").update(input).eq("id",id);
+  if(error) throw error;
+}
+
+export async function createTask(input:{title:string;description?:string;dueAt?:string|null;assignedTo?:string|null;priority?:string;department?:string},role:Role,creatorId:string){
   if(!supabase) return null;
   if(role!=="Super Admin") throw new Error("Only Super Admin can create and assign tasks.");
-  const {data:latest}=await supabase.from("tasks").select("task_id").like("task_id","TASK-%").order("task_id",{ascending:false}).limit(1);
+  const {data:latest,error:latestError}=await supabase.from("tasks").select("task_id").like("task_id","TASK-%").order("task_id",{ascending:false}).limit(1);
+  if(latestError) throw latestError;
   const next=(latest?.[0]?.task_id?.replace("TASK-","")?Number(latest[0].task_id.replace("TASK-","")):0)+1;
   const taskId=`TASK-${String(next).padStart(3,"0")}`;
-  const {error}=await supabase.from("tasks").insert({task_id:taskId,title:input.title.trim(),description:input.description||null,due_at:input.dueAt||null,assigned_to:input.assignedTo||null,created_by:creatorId,status:"Pending"});
+  const {error}=await supabase.from("tasks").insert({task_id:taskId,title:input.title.trim(),description:input.description||null,due_at:input.dueAt||null,assigned_to:input.assignedTo||null,created_by:creatorId,priority:input.priority||"Normal",department:input.department||null,status:"Pending"});
   if(error) throw error;
   return taskId;
+}
+
+export async function updateTaskStatus(id:string,status:"Pending"|"In Progress"|"Completed"|"Cancelled"|"Overdue",role:Role){
+  if(!supabase) return;
+  if(!(role==="Super Admin"||role==="Field Technician")) throw new Error("You are not permitted to update this task.");
+  const {error}=await supabase.from("tasks").update({status,completed_at:status==="Completed"?new Date().toISOString():null}).eq("id",id);
+  if(error) throw error;
+}
+
+export async function addTaskComment(taskId:string,comment:string,userId:string,role:Role){
+  if(!supabase) return;
+  if(!(role==="Super Admin"||role==="Field Technician")) throw new Error("You are not permitted to comment on this task.");
+  const {error}=await supabase.from("task_comments").insert({task_id:taskId,comment:comment.trim(),user_id:userId});
+  if(error) throw error;
+}
+
+export async function loadTaskComments(taskId:string){
+  if(!supabase) return [] as {id:string;comment:string;createdAt:string;user:string}[];
+  const {data,error}=await supabase.from("task_comments").select("id,comment,created_at,user_id").eq("task_id",taskId).order("created_at",{ascending:true});
+  if(error) throw error;
+  const ids=[...new Set((data??[]).map(x=>x.user_id).filter(Boolean))];
+  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as any;
+  if(profileError) throw profileError;
+  const map=new Map((profiles??[]).map(p=>[p.id,p.full_name]));
+  return (data??[]).map(x=>({id:x.id,comment:x.comment,createdAt:new Date(x.created_at).toLocaleString("en-GB"),user:map.get(x.user_id)||"User"}));
 }
