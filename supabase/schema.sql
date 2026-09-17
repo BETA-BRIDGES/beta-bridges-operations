@@ -25,17 +25,11 @@ create index if not exists audit_logs_created_at_idx on audit_logs(created_at de
 
 do $$ declare t text; begin foreach t in array array['profiles','clients','jobs','vehicles','job_completions','stock_transactions','miscellaneous_charges','tasks','task_comments','reminders','audit_logs','google_connections'] loop execute format('alter table %I enable row level security',t); end loop; end $$;
 
-create or replace function public.current_app_role() returns app_role
-language sql stable security definer set search_path=public
-as $$ select role from public.profiles where id=auth.uid() and active=true limit 1 $$;
+create or replace function public.current_app_role() returns app_role language sql stable security definer set search_path=public as $$ select role from public.profiles where id=auth.uid() and active=true limit 1 $$;
+create or replace function public.is_super_admin() returns boolean language sql stable security definer set search_path=public as $$ select coalesce(public.current_app_role()='Super Admin',false) $$;
+create or replace function public.bootstrap_first_super_admin(p_full_name text,p_email text) returns profiles language plpgsql security definer set search_path=public as $$ declare p profiles; begin if exists(select 1 from public.profiles) then raise exception 'Initial Super Admin has already been created'; end if; if auth.uid() is null then raise exception 'Authentication is required'; end if; insert into public.profiles(id,full_name,email,role,active) values(auth.uid(),p_full_name,p_email,'Super Admin',true) returning * into p; return p; end $$;
 
-create or replace function public.is_super_admin() returns boolean
-language sql stable security definer set search_path=public
-as $$ select coalesce(public.current_app_role()='Super Admin',false) $$;
-
-create or replace function public.enforce_field_restrictions() returns trigger
-language plpgsql security definer set search_path=public
-as $$
+create or replace function public.enforce_field_restrictions() returns trigger language plpgsql security definer set search_path=public as $$
 begin
   if tg_table_name='jobs' and public.current_app_role()='TSS Officer' then
     if new.assigned_technician_id is distinct from old.assigned_technician_id then raise exception 'TSS Officer cannot change Techie Assigned'; end if;
@@ -58,12 +52,7 @@ create trigger stock_field_restrictions before update on stock_transactions for 
 drop trigger if exists completion_field_restrictions on job_completions;
 create trigger completion_field_restrictions before update on job_completions for each row execute function public.enforce_field_restrictions();
 
--- Policies are recreated so this migration can be safely rerun during development.
-do $$ declare r record; begin
-  for r in select policyname,tablename from pg_policies where schemaname='public' and tablename in ('profiles','clients','jobs','vehicles','job_completions','stock_transactions','miscellaneous_charges','tasks','task_comments','reminders','audit_logs','google_connections') loop
-    execute format('drop policy if exists %I on %I',r.policyname,r.tablename);
-  end loop;
-end $$;
+do $$ declare r record; begin for r in select policyname,tablename from pg_policies where schemaname='public' and tablename in ('profiles','clients','jobs','vehicles','job_completions','stock_transactions','miscellaneous_charges','tasks','task_comments','reminders','audit_logs','google_connections') loop execute format('drop policy if exists %I on %I',r.policyname,r.tablename); end loop; end $$;
 
 create policy profiles_select on profiles for select to authenticated using (true);
 create policy profiles_admin_insert on profiles for insert to authenticated with check (public.is_super_admin());
@@ -71,7 +60,9 @@ create policy profiles_admin_update on profiles for update to authenticated usin
 create policy profiles_admin_delete on profiles for delete to authenticated using (public.is_super_admin());
 
 create policy clients_select on clients for select to authenticated using (true);
-create policy clients_write on clients for all to authenticated using (public.current_app_role() in ('Super Admin','TSS Officer')) with check (public.current_app_role() in ('Super Admin','TSS Officer'));
+create policy clients_insert on clients for insert to authenticated with check (public.current_app_role() in ('Super Admin','TSS Officer'));
+create policy clients_update on clients for update to authenticated using (public.current_app_role() in ('Super Admin','TSS Officer')) with check (public.current_app_role() in ('Super Admin','TSS Officer'));
+create policy clients_delete on clients for delete to authenticated using (public.is_super_admin());
 
 create policy jobs_select on jobs for select to authenticated using (true);
 create policy jobs_insert on jobs for insert to authenticated with check (public.current_app_role() in ('Super Admin','TSS Officer'));
@@ -79,7 +70,9 @@ create policy jobs_update on jobs for update to authenticated using (public.curr
 create policy jobs_delete on jobs for delete to authenticated using (public.is_super_admin());
 
 create policy vehicles_select on vehicles for select to authenticated using (true);
-create policy vehicles_write on vehicles for all to authenticated using (public.current_app_role() in ('Super Admin','TSS Officer')) with check (public.current_app_role() in ('Super Admin','TSS Officer'));
+create policy vehicles_insert on vehicles for insert to authenticated with check (public.current_app_role() in ('Super Admin','TSS Officer'));
+create policy vehicles_update on vehicles for update to authenticated using (public.current_app_role() in ('Super Admin','TSS Officer')) with check (public.current_app_role() in ('Super Admin','TSS Officer'));
+create policy vehicles_delete on vehicles for delete to authenticated using (public.is_super_admin());
 
 create policy completions_select on job_completions for select to authenticated using (true);
 create policy completions_insert on job_completions for insert to authenticated with check (public.current_app_role() in ('Super Admin','TSS Officer'));
@@ -92,9 +85,11 @@ create policy stock_update on stock_transactions for update to authenticated usi
 create policy stock_delete on stock_transactions for delete to authenticated using (public.is_super_admin());
 
 create policy charges_select on miscellaneous_charges for select to authenticated using (true);
-create policy charges_write on miscellaneous_charges for all to authenticated using (public.current_app_role() in ('Super Admin','TSS Officer')) with check (public.current_app_role() in ('Super Admin','TSS Officer'));
+create policy charges_insert on miscellaneous_charges for insert to authenticated with check (public.current_app_role() in ('Super Admin','TSS Officer'));
+create policy charges_update on miscellaneous_charges for update to authenticated using (public.current_app_role() in ('Super Admin','TSS Officer')) with check (public.current_app_role() in ('Super Admin','TSS Officer'));
+create policy charges_delete on miscellaneous_charges for delete to authenticated using (public.is_super_admin());
 
-create policy tasks_select on tasks for select to authenticated using (public.is_super_admin() or assigned_to=auth.uid() or public.current_app_role() in ('Viewer'));
+create policy tasks_select on tasks for select to authenticated using (public.is_super_admin() or assigned_to=auth.uid() or public.current_app_role()='Viewer');
 create policy tasks_insert on tasks for insert to authenticated with check (public.is_super_admin());
 create policy tasks_update on tasks for update to authenticated using (public.is_super_admin() or assigned_to=auth.uid()) with check (public.is_super_admin() or assigned_to=auth.uid());
 create policy tasks_delete on tasks for delete to authenticated using (public.is_super_admin());
