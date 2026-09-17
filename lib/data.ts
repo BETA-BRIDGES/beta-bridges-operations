@@ -41,7 +41,7 @@ export async function loadTasks():Promise<AppTask[]>{
   if(error) throw error;
   const rows=(data??[]) as TaskLookupRow[];
   const ids=Array.from(new Set(rows.map(t=>t.assigned_to).filter(Boolean)));
-  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as {data:TaskProfileLookup[];error:null};
+  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:TaskProfileLookup[];error:null});
   if(profileError) throw profileError;
   const profileRows=(profiles??[]) as TaskProfileLookup[];
   const map=new Map<string,string|null>(profileRows.map((p:TaskProfileLookup)=>[p.id,p.full_name]));
@@ -74,7 +74,7 @@ export async function createTask(input:{title:string;description?:string;dueAt?:
   if(role!=="Super Admin") throw new Error("Only Super Admin can create and assign tasks.");
   const {data:latest,error:latestError}=await supabase.from("tasks").select("task_id").like("task_id","TASK-%").order("task_id",{ascending:false}).limit(1);
   if(latestError) throw latestError;
-  const next=(latest?.[0]?.task_id?.replace("TASK-","")?Number(latest[0].task_id.replace("TASK-",""):0)+1;
+  const next=(latest?.[0]?.task_id?.replace("TASK-","")?Number(latest[0].task_id.replace("TASK-","")):0)+1;
   const taskId=`TASK-${String(next).padStart(3,"0")}`;
   const {error}=await supabase.from("tasks").insert({task_id:taskId,title:input.title.trim(),description:input.description||null,due_at:input.dueAt||null,assigned_to:input.assignedTo||null,created_by:creatorId,priority:input.priority||"Normal",department:input.department||null,status:"Pending"});
   if(error) throw error;
@@ -101,8 +101,8 @@ export async function loadTaskComments(taskId:string):Promise<TaskComment[]>{
   const {data,error}=await supabase.from("task_comments").select("id,comment,created_at,user_id").eq("task_id",taskId).order("created_at",{ascending:true});
   if(error) throw error;
   const ids=Array.from(new Set((data??[]).map(x=>x.user_id).filter(Boolean)));
-  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as any;
+  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:{id:string;full_name:string|null}[];error:null});
   if(profileError) throw profileError;
-  const map=new Map<string,string>((profiles??[]).map((p:any)=>[String(p.id),String(p.full_name??"User")]));
+  const map=new Map<string,string>((profiles??[]).map(p=>[String(p.id),String(p.full_name??"User")]));
   return (data??[]).map(x=>({id:String(x.id),comment:String(x.comment??""),createdAt:new Date(x.created_at).toLocaleString("en-GB"),user:map.get(String(x.user_id))||"User"}));
 }
