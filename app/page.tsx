@@ -11,18 +11,12 @@ type Profile={id:string;full_name:string;email:string;role:Role;active:boolean};
 type FormState=Record<string,string>;
 
 const MODULES=["Daily Job Listing","Daily Job Done","Used Stock","Techie Weekly Activity","Miscellaneous Charges","Client Data","Tasks"] as const;
-
 function today(){return new Date().toISOString().slice(0,10)}
 function money(value:number){return `₦${Number(value||0).toLocaleString("en-NG")}`}
 function pretty(value:string|null|undefined){return value||"—"}
 
-function Table({headers,children}:{headers:string[];children:ReactNode}){
-  return <div className="table-wrap"><table><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{children}</tbody></table></div>
-}
-
-function Field({label,name,value,setValue,type="text",placeholder="",readOnly=false,options}:{label:string;name:string;value:string;setValue:(v:string)=>void;type?:string;placeholder?:string;readOnly?:boolean;options?:{value:string;label:string}[]}){
-  return <label>{label}{options?<select value={value} disabled={readOnly} onChange={e=>setValue(e.target.value)}><option value="">Select…</option>{options.map(o=><option value={o.value} key={o.value}>{o.label}</option>)}</select>:type==="textarea"?<textarea value={value} readOnly={readOnly} placeholder={placeholder} onChange={e=>setValue(e.target.value)}/>:<input type={type} value={value} readOnly={readOnly} placeholder={placeholder} onChange={e=>setValue(e.target.value)}/>}</label>
-}
+function Table({headers,children}:{headers:string[];children:ReactNode}){return <div className="table-wrap"><table><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{children}</tbody></table></div>}
+function Field({label,name,value,setValue,type="text",placeholder="",readOnly=false,options}:{label:string;name:string;value:string;setValue:(v:string)=>void;type?:string;placeholder?:string;readOnly?:boolean;options?:{value:string;label:string}[]}){return <label>{label}{options?<select value={value} disabled={readOnly} onChange={e=>setValue(e.target.value)}><option value="">Select…</option>{options.map(o=><option value={o.value} key={o.value}>{o.label}</option>)}</select>:type==="textarea"?<textarea value={value} readOnly={readOnly} placeholder={placeholder} onChange={e=>setValue(e.target.value)}/>:<input type={type} value={value} readOnly={readOnly} placeholder={placeholder} onChange={e=>setValue(e.target.value)}/>}</label>}
 
 export default function Home(){
   const router=useRouter();
@@ -50,20 +44,16 @@ export default function Home(){
   const [form,setForm]=useState<FormState>({});
   const [selectedId,setSelectedId]=useState("");
   const [selectedTaskComments,setSelectedTaskComments]=useState<{id:string;comment:string;createdAt:string;user:string}[]>([]);
-
   const allowed=useMemo(()=>MODULES.filter(m=>can(role,m,"view")),[role]);
   const technicians=users.filter(u=>u.active&&u.role==="Field Technician");
   const unreadCount=notifications.filter(n=>!n.readAt).length;
-
   function setField(name:string,value:string){setForm(p=>({...p,[name]:value}))}
   function closeModal(){setModal(false);setEditing(false);setFormMode("record");setSelectedId("");setSelectedTaskComments([])}
 
   async function refresh(){
     if(!supabase) return;
     try{
-      const [j,t,c,s,d,mc,w,u,n]=await Promise.all([
-        loadJobs(),loadTasks(),loadClients(),loadStock(),loadCompletions(),loadCharges(),loadWeekly(),loadProfiles(),profile?.id?loadNotifications(profile.id):Promise.resolve([])
-      ]);
+      const [j,t,c,s,d,mc,w,u,n]=await Promise.all([loadJobs(),loadTasks(),loadClients(),loadStock(),loadCompletions(),loadCharges(),loadWeekly(),loadProfiles(),profile?.id?loadNotifications(profile.id):Promise.resolve([])]);
       setJobs(j);setTasks(t);setClients(c);setStock(s);setCompletions(d);setCharges(mc);setWeekly(w);setUsers(u);setNotifications(n);setProfileError("");
     }catch(error){setProfileError(error instanceof Error?error.message:"Unable to load operational data.")}
   }
@@ -78,16 +68,13 @@ export default function Home(){
       const {data,error}=await supabase!.from("profiles").select("id,full_name,email,role,active").eq("id",session.user.id).maybeSingle();
       if(!mounted) return;
       if(error){setProfileError(error.message);setAuthLoading(false);return}
-      setProfile(data as Profile);
-      setAuthLoading(false);
+      setProfile(data as Profile);setAuthLoading(false);
     }
     load();
     const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{if(!session) router.replace("/login")});
     return()=>{mounted=false;subscription.unsubscribe()};
   },[router]);
-
   useEffect(()=>{if(profile) void refresh()},[profile]);
-
   async function signOut(){if(supabase) await supabase.auth.signOut();else setModule("Dashboard")}
 
   async function bootstrap(){
@@ -128,7 +115,9 @@ export default function Home(){
   async function saveRecord(e:FormEvent){
     e.preventDefault();setBusy(true);setProfileError("");
     try{
-      if(module==="Daily Job Listing"){
+      if(formMode==="comment"){
+        await addTaskComment(selectedId,form.comment||"",profile?.id||"",role);
+      }else if(module==="Daily Job Listing"){
         const payload:any={client_id:form.clientId||null,number_of_vehicles:Math.max(1,Number(form.numberOfVehicles)||1),scheduled_date:form.scheduledDate||null,location:form.location||null,vehicle_make:form.vehicleMake||null,priority:form.priority||"Normal",description:form.description||null,status:form.status||"Pending"};
         if(role==="Super Admin") payload.assigned_technician_id=form.assignedTechnicianId||null;
         if(editing) await updateJob(selectedId,payload,role); else await createJob({clientId:form.clientId||null,numberOfVehicles:Math.max(1,Number(form.numberOfVehicles)||1),scheduledDate:form.scheduledDate,location:form.location,vehicleMake:form.vehicleMake,priority:form.priority,description:form.description,tssOfficerId:profile?.id},role);
@@ -149,8 +138,6 @@ export default function Home(){
         if(editing) await updateClient(selectedId,patch,role); else await createClient({name:form.name,contactPerson:form.contactPerson,phone:form.phone,email:form.email,location:form.location,category:form.category,notes:form.notes},role);
       }else if(module==="Tasks"){
         await createTask({title:form.title,description:form.description,assignedTo:form.assignedTo||null,dueAt:form.dueAt||null,department:form.department,priority:form.priority},role,profile?.id||"");
-      }else if(formMode==="comment"){
-        await addTaskComment(selectedId,form.comment||"",profile?.id||"",role);
       }
       await refresh();closeModal();
     }catch(error){setProfileError(error instanceof Error?error.message:"Unable to save record.")}
@@ -175,29 +162,17 @@ export default function Home(){
     <main className="main"><header className="topbar"><div><h1 className="page-title">{module}</h1><div className="muted">Central operations workspace</div></div><div className="topbar-actions">{supabase?<div className="user-chip"><strong>{profile?.full_name||profile?.email}</strong><span>{role}</span></div>:<select value={demoRole} onChange={e=>{setDemoRole(e.target.value as Role);setModule("Dashboard")}} className="role-select">{ROLES.map(r=><option key={r}>{r}</option>)}</select>}{supabase&&<button className="btn" onClick={signOut}>Sign out</button>}</div></header>
       {profileError&&<div className="login-error page-error">{profileError}</div>}
 
-      {module==="Dashboard"&&<>
-        <section className="grid"><div className="card"><div className="muted">Scheduled projects</div><div className="stat">{jobs.length}</div></div><div className="card"><div className="muted">Vehicles scheduled</div><div className="stat">{jobs.reduce((n,j)=>n+j.vehicles,0)}</div></div><div className="card"><div className="muted">Completed records</div><div className="stat">{completions.length}</div></div><div className="card"><div className="muted">Open tasks</div><div className="stat">{tasks.filter(t=>t.status!=="Completed").length}</div></div></section>
-        <section className="section two"><div className="card"><h3>Job queue</h3><Table headers={["Job ID","Client","Vehicles","Technician","Date","Status"]}>{jobs.slice(0,10).map(j=><tr key={j.id}><td>{j.jobId}</td><td>{j.client}</td><td>{j.vehicles}</td><td>{j.technician}</td><td>{j.date}</td><td>{j.status}</td></tr>)}</Table></div><div className="card"><h3>Open tasks</h3>{tasks.filter(t=>t.status!=="Completed").slice(0,8).map(t=><div className="task" key={t.id}><strong>{t.title}</strong><span>{t.assignee} · {t.due}</span><em>{t.status}</em></div>)}</div></section>
-      </>}
+      {module==="Dashboard"&&<><section className="grid"><div className="card"><div className="muted">Scheduled projects</div><div className="stat">{jobs.length}</div></div><div className="card"><div className="muted">Vehicles scheduled</div><div className="stat">{jobs.reduce((n,j)=>n+j.vehicles,0)}</div></div><div className="card"><div className="muted">Completed records</div><div className="stat">{completions.length}</div></div><div className="card"><div className="muted">Open tasks</div><div className="stat">{tasks.filter(t=>t.status!=="Completed").length}</div></div></section><section className="section two"><div className="card"><h3>Job queue</h3><Table headers={["Job ID","Client","Vehicles","Technician","Date","Status"]}>{jobs.slice(0,10).map(j=><tr key={j.id}><td>{j.jobId}</td><td>{j.client}</td><td>{j.vehicles}</td><td>{j.technician}</td><td>{j.date}</td><td>{j.status}</td></tr>)}</Table></div><div className="card"><h3>Open tasks</h3>{tasks.filter(t=>t.status!=="Completed").slice(0,8).map(t=><div className="task" key={t.id}><strong>{t.title}</strong><span>{t.assignee} · {t.due}</span><em>{t.status}</em></div>)}</div></section></>}
 
       {module==="Daily Job Listing"&&<section className="card"><div className="section-head"><div><h3>Daily Job Listing</h3><p className="muted">Legacy NUMBER OF JOBS is treated as the number of vehicles covered by one project.</p></div>{canCreate(role,module)&&<button className="btn primary" onClick={()=>openCreate(module)}>Add project</button>}</div><Table headers={["Job ID","NUMBER OF JOBS / Vehicles","Client","Date","Location","Techie Assigned","Status","Actions"]}>{jobs.map(j=><tr key={j.id}><td>{j.jobId}</td><td>{j.vehicles}</td><td>{j.client}</td><td>{j.date}</td><td>{pretty(j.location)}</td><td>{j.technician}</td><td>{j.status}</td><td>{can(role,module,"edit")&&<button className="btn small" onClick={()=>openEdit(module,j)}>Edit</button>}{can(role,module,"assign")&&<button className="btn small" onClick={()=>openEdit(module,j)}>Assign</button>}</td></tr>)}</Table></section>}
-
       {module==="Daily Job Done"&&<section className="card"><div className="section-head"><div><h3>Daily Job Done</h3><p className="muted">DEVICE ID is the physical tracker identifier and is separate from the operational Job ID.</p></div>{canCreate(role,module)&&<button className="btn primary" onClick={()=>openCreate(module)}>Add completion</button>}</div><Table headers={["Job ID","DEVICE ID","Date","Installer","Client","Status","Remark","Actions"]}>{completions.map(c=><tr key={c.id}><td>{c.jobId||"—"}</td><td>{c.deviceId}</td><td>{c.date}</td><td>{c.installer||"—"}</td><td>{c.client||"—"}</td><td>{c.status}</td><td>{pretty(c.remarks)}</td><td>{can(role,module,"remark")&&<button className="btn small" onClick={()=>{setSelectedId(c.id);setForm({remark:c.remarks});setFormMode("remark");setModal(true)}}>Remark</button>}</td></tr>)}</Table></section>}
-
       {module==="Used Stock"&&<section className="card"><div className="section-head"><div><h3>Used Stock</h3><p className="muted">Operations cannot change Device ID, SIM ID or Date Issued. Finance can change only those three fields.</p></div>{canCreate(role,module)&&<button className="btn primary" onClick={()=>openCreate(module)}>Add stock record</button>}</div><Table headers={["Device ID","SIM ID","Date Issued","Date Installed","Installer","Client","Location","Network","Actions"]}>{stock.map(s=><tr key={s.id}><td>{s.deviceId||"—"}</td><td>{s.simId||"—"}</td><td>{s.dateIssued||"—"}</td><td>{s.dateInstalled||"—"}</td><td>{s.installer||"—"}</td><td>{s.client||"—"}</td><td>{s.location||"—"}</td><td>{s.network||"—"}</td><td>{can(role,module,"edit")&&<button className="btn small" onClick={()=>openEdit(module,s)}>Edit</button>}</td></tr>)}</Table></section>}
-
       {module==="Techie Weekly Activity"&&<section className="card"><div className="section-head"><div><h3>Techie Weekly Activity Report</h3><p className="muted">Tracks projects and vehicles completed by Field Technician.</p></div>{canCreate(role,module)&&<button className="btn primary" onClick={()=>openCreate(module)}>Add weekly record</button>}</div><Table headers={["Technician","Week","Projects","Vehicles Completed","Updated","Remarks","Actions"]}>{weekly.map(w=><tr key={w.id}><td>{w.technician}</td><td>{w.week}</td><td>{w.projects}</td><td>{w.vehiclesCompleted}</td><td>{w.date}</td><td>{pretty(w.remarks)}</td><td>{can(role,module,"edit")&&<button className="btn small" onClick={()=>openEdit(module,w)}>Edit</button>}</td></tr>)}</Table></section>}
-
       {module==="Miscellaneous Charges"&&<section className="card"><div className="section-head"><div><h3>Miscellaneous Charges</h3><p className="muted">Finance has view/copy access only; TSS Officer enters and maintains the records.</p></div>{canCreate(role,module)&&<button className="btn primary" onClick={()=>openCreate(module)}>Add charge</button>}</div><Table headers={["Charge ID","Client","Logistics","Accommodation","Swap","SIM Replacement","Others","Status","Actions"]}>{charges.map(c=><tr key={c.id}><td>{c.chargeId}</td><td>{c.client}</td><td>{money(c.logistics)}</td><td>{money(c.accommodation)}</td><td>{money(c.swap)}</td><td>{money(c.simReplacement)}</td><td>{money(c.others)}</td><td>{c.status}</td><td>{can(role,module,"edit")&&<button className="btn small" onClick={()=>openEdit(module,c)}>Edit</button>}{canCopy(role,module)&&<button className="btn small" onClick={()=>copyCharge(c)}>Copy</button>}</td></tr>)}</Table></section>}
-
       {module==="Client Data"&&<section className="card"><div className="section-head"><div><h3>Client Data List</h3><p className="muted">Master client directory used by jobs and billing.</p></div>{canCreate(role,module)&&<button className="btn primary" onClick={()=>openCreate(module)}>Add client</button>}</div><Table headers={["Client","Contact","Phone","Email","Location","Category","Status","Actions"]}>{clients.map(c=><tr key={c.id}><td>{c.name}</td><td>{pretty(c.contactPerson)}</td><td>{pretty(c.phone)}</td><td>{pretty(c.email)}</td><td>{pretty(c.location)}</td><td>{pretty(c.category)}</td><td>{c.status}</td><td>{can(role,module,"edit")&&<button className="btn small" onClick={()=>openEdit(module,c)}>Edit</button>}</td></tr>)}</Table></section>}
-
       {module==="Tasks"&&<section className="card"><div className="section-head"><div><h3>Tasks & Reminders</h3><p className="muted">Super Admin assigns tasks. Field Technician can update assigned work, comment and complete it.</p></div>{canCreate(role,module)&&<button className="btn primary" onClick={()=>openCreate(module)}>Create task</button>}</div><Table headers={["Task ID","Title","Assignee","Due","Status","Actions"]}>{tasks.map(t=><tr key={t.id}><td>{t.taskKey}</td><td>{t.title}</td><td>{t.assignee}</td><td>{t.due}</td><td>{t.status}</td><td>{can(role,module,"complete")&&<button className="btn small" onClick={()=>taskAction(t,"Completed")}>Complete</button>}{can(role,module,"comment")&&<button className="btn small" onClick={()=>showComments(t)}>Comment</button>}</td></tr>)}</Table></section>}
-
       {module==="Notifications"&&<section className="card"><div className="section-head"><div><h3>Notifications</h3><p className="muted">Task assignments and system notifications for this account.</p></div></div>{notifications.length===0?<p className="muted">No notifications.</p>:notifications.map(n=><div className={`task ${n.readAt?"":"unread"}`} key={n.id}><strong>{n.title}</strong><span>{n.message} · {n.createdAt}</span>{!n.readAt&&<button className="btn small" onClick={async()=>{await markNotificationRead(n.id);if(profile) setNotifications(await loadNotifications(profile.id))}}>Mark read</button>}</div>)}</section>}
-
       {module==="Administration"&&role==="Super Admin"&&<section className="section two"><div className="card"><h3>Users & Roles</h3><Table headers={["Name","Email","Role","Status"]}>{users.map(u=><tr key={u.id}><td>{u.fullName}</td><td>{u.email}</td><td>{u.role}</td><td>{u.active?"Active":"Inactive"}</td></tr>)}</Table></div><div className="card"><h3>Google Sheets Connections</h3><p className="muted">The six legacy spreadsheet IDs and mappings are stored in the project. OAuth authorization is the remaining external Google step.</p><span className="badge warn">Google authorization pending</span></div></section>}
-
       <div className="build-note">Operational tables now read from Supabase when configured. Database RLS remains the final enforcement layer for every role and field restriction.</div>
     </main>
 

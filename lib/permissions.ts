@@ -16,7 +16,14 @@ const fieldRules:Record<string,Partial<Record<Role,{editable?:string[];readonly?
   "Used Stock":{"Operations":{editable:["Network","Device Type","Device Status","Date Collected","Operations Remark","Operations Correction","Date Installed","Installer","Location","Client","Vehicle Details","Vehicle Make","Other Issues"],readonly:["Device ID","SIM ID","Date Issued"]},Finance:{editable:["Device ID","SIM ID","Date Issued"]}}
 };
 
-export function can(role:Role,module:string,action:string){return role==="Super Admin"||permissions[module]?.[role]?.includes(action)===true}
+export function can(role:Role,module:string,action:string){
+  if(role==="Super Admin") return true;
+  const actions=permissions[module]?.[role]??[];
+  if(actions.includes(action)) return true;
+  if(action==="view" && actions.includes("view-assigned")) return true;
+  if(action==="edit" && actions.some(a=>a.startsWith("edit-"))) return true;
+  return false;
+}
 export function canCreate(role:Role,module:string){return can(role,module,"create")}
 export function canCopy(role:Role,module:string){return can(role,module,"copy")}
 export function canEditField(role:Role,module:string,field:string){
