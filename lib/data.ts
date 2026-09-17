@@ -84,13 +84,14 @@ export async function addTaskComment(taskId:string,comment:string,userId:string,
   if(error) throw error;
 }
 
-export async function loadTaskComments(taskId:string){
-  if(!supabase) return [] as {id:string;comment:string;createdAt:string;user:string}[];
+type TaskComment={id:string;comment:string;createdAt:string;user:string};
+export async function loadTaskComments(taskId:string):Promise<TaskComment[]>{
+  if(!supabase) return [];
   const {data,error}=await supabase.from("task_comments").select("id,comment,created_at,user_id").eq("task_id",taskId).order("created_at",{ascending:true});
   if(error) throw error;
   const ids=[...new Set((data??[]).map(x=>x.user_id).filter(Boolean))];
   const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as any;
   if(profileError) throw profileError;
-  const map=new Map((profiles??[]).map(p=>[p.id,p.full_name]));
-  return (data??[]).map(x=>({id:x.id,comment:x.comment,createdAt:new Date(x.created_at).toLocaleString("en-GB"),user:map.get(x.user_id)||"User"}));
+  const map=new Map<string,string>((profiles??[]).map((p:any)=>[String(p.id),String(p.full_name??"User")]));
+  return (data??[]).map(x=>({id:String(x.id),comment:String(x.comment??""),createdAt:new Date(x.created_at).toLocaleString("en-GB"),user:map.get(String(x.user_id))||"User"}));
 }
