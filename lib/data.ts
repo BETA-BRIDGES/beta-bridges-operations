@@ -13,8 +13,8 @@ export async function loadJobs():Promise<AppJob[]>{
   if(!supabase) return [];
   const {data,error}=await supabase.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,assigned_technician_id,status,location").order("scheduled_date",{ascending:true});
   if(error) throw error;
-  const clientIds=[...new Set((data??[]).map(x=>x.client_id).filter(Boolean))];
-  const techIds=[...new Set((data??[]).map(x=>x.assigned_technician_id).filter(Boolean))];
+  const clientIds=Array.from(new Set((data??[]).map(x=>x.client_id).filter(Boolean)));
+  const techIds=Array.from(new Set((data??[]).map(x=>x.assigned_technician_id).filter(Boolean)));
   const [{data:clients,error:clientError},{data:techs,error:techError}]=await Promise.all([
     clientIds.length?supabase.from("clients").select("id,name").in("id",clientIds):Promise.resolve({data:[],error:null} as any),
     techIds.length?supabase.from("profiles").select("id,full_name").in("id",techIds):Promise.resolve({data:[],error:null} as any)
@@ -30,7 +30,7 @@ export async function loadTasks():Promise<AppTask[]>{
   if(!supabase) return [];
   const {data,error}=await supabase.from("tasks").select("id,task_id,title,assigned_to,due_at,status").order("due_at",{ascending:true});
   if(error) throw error;
-  const ids=[...new Set((data??[]).map(t=>t.assigned_to).filter(Boolean))];
+  const ids=Array.from(new Set((data??[]).map(t=>t.assigned_to).filter(Boolean)));
   const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as any;
   if(profileError) throw profileError;
   const map=new Map((profiles??[]).map(p=>[p.id,p.full_name]));
@@ -89,7 +89,7 @@ export async function loadTaskComments(taskId:string):Promise<TaskComment[]>{
   if(!supabase) return [];
   const {data,error}=await supabase.from("task_comments").select("id,comment,created_at,user_id").eq("task_id",taskId).order("created_at",{ascending:true});
   if(error) throw error;
-  const ids=[...new Set((data??[]).map(x=>x.user_id).filter(Boolean))];
+  const ids=Array.from(new Set((data??[]).map(x=>x.user_id).filter(Boolean)));
   const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as any;
   if(profileError) throw profileError;
   const map=new Map<string,string>((profiles??[]).map((p:any)=>[String(p.id),String(p.full_name??"User")]));
