@@ -4,6 +4,12 @@ import type { Role } from "./permissions";
 export type AppJob={id:string;jobId:string;client:string;clientId:string|null;vehicles:number;date:string;technician:string;technicianId:string|null;status:string;location:string};
 export type AppTask={id:string;taskKey:string;title:string;assignee:string;assigneeId:string|null;due:string;status:string};
 
+type ClientLookup={id:string;name:string|null};
+type ProfileLookup={id:string;full_name:string|null};
+type TaskProfileLookup={id:string;full_name:string|null};
+type JobLookupRow={id:string;job_id:string;client_id:string|null;number_of_vehicles:number;scheduled_date:string;assigned_technician_id:string|null;status:string;location:string|null};
+type TaskLookupRow={id:string;task_id:string;title:string;assigned_to:string|null;due_at:string|null;status:string};
+
 function formatDate(value:string|null){
   if(!value) return "—";
   return new Date(`${value}T00:00:00`).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
@@ -13,28 +19,33 @@ export async function loadJobs():Promise<AppJob[]>{
   if(!supabase) return [];
   const {data,error}=await supabase.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,assigned_technician_id,status,location").order("scheduled_date",{ascending:true});
   if(error) throw error;
-  const clientIds=Array.from(new Set((data??[]).map(x=>x.client_id).filter(Boolean)));
-  const techIds=Array.from(new Set((data??[]).map(x=>x.assigned_technician_id).filter(Boolean)));
+  const rows=(data??[]) as JobLookupRow[];
+  const clientIds=Array.from(new Set(rows.map(x=>x.client_id).filter(Boolean)));
+  const techIds=Array.from(new Set(rows.map(x=>x.assigned_technician_id).filter(Boolean)));
   const [{data:clients,error:clientError},{data:techs,error:techError}]=await Promise.all([
-    clientIds.length?supabase.from("clients").select("id,name").in("id",clientIds):Promise.resolve({data:[],error:null} as any),
-    techIds.length?supabase.from("profiles").select("id,full_name").in("id",techIds):Promise.resolve({data:[],error:null} as any)
+    clientIds.length?supabase.from("clients").select("id,name").in("id",clientIds):Promise.resolve({data:[],error:null} as {data:ClientLookup[];error:null}),
+    techIds.length?supabase.from("profiles").select("id,full_name").in("id",techIds):Promise.resolve({data:[],error:null} as {data:ProfileLookup[];error:null})
   ]);
   if(clientError) throw clientError;
   if(techError) throw techError;
-  const clientMap=new Map((clients??[]).map(c=>[c.id,c.name]));
-  const techMap=new Map((techs??[]).map(t=>[t.id,t.full_name]));
-  return (data??[]).map(j=>({id:j.id,jobId:j.job_id,client:clientMap.get(j.client_id)||"—",clientId:j.client_id||null,vehicles:j.number_of_vehicles,date:formatDate(j.scheduled_date),technician:techMap.get(j.assigned_technician_id)||"Unassigned",technicianId:j.assigned_technician_id||null,status:j.status,location:j.location||""}));
+  const clientRows=(clients??[]) as ClientLookup[];
+  const techRows=(techs??[]) as ProfileLookup[];
+  const clientMap=new Map<string,string|null>(clientRows.map((c:ClientLookup)=>[c.id,c.name]));
+  const techMap=new Map<string,string|null>(techRows.map((t:ProfileLookup)=>[t.id,t.full_name]));
+  return rows.map(j=>({id:j.id,jobId:j.job_id,client:clientMap.get(j.client_id)||"—",clientId:j.client_id||null,vehicles:j.number_of_vehicles,date:formatDate(j.scheduled_date),technician:techMap.get(j.assigned_technician_id)||"Unassigned",technicianId:j.assigned_technician_id||null,status:j.status,location:j.location||""}));
 }
 
 export async function loadTasks():Promise<AppTask[]>{
   if(!supabase) return [];
   const {data,error}=await supabase.from("tasks").select("id,task_id,title,assigned_to,due_at,status").order("due_at",{ascending:true});
   if(error) throw error;
-  const ids=Array.from(new Set((data??[]).map(t=>t.assigned_to).filter(Boolean)));
-  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as any;
+  const rows=(data??[]) as TaskLookupRow[];
+  const ids=Array.from(new Set(rows.map(t=>t.assigned_to).filter(Boolean)));
+  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as {data:TaskProfileLookup[];error:null};
   if(profileError) throw profileError;
-  const map=new Map((profiles??[]).map(p=>[p.id,p.full_name]));
-  return (data??[]).map(t=>({id:t.id,taskKey:t.task_id,title:t.title,assignee:map.get(t.assigned_to)||"Unassigned",assigneeId:t.assigned_to||null,due:t.due_at?new Date(t.due_at).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—",status:t.status}));
+  const profileRows=(profiles??[]) as TaskProfileLookup[];
+  const map=new Map<string,string|null>(profileRows.map((p:TaskProfileLookup)=>[p.id,p.full_name]));
+  return rows.map(t=>({id:t.id,taskKey:t.task_id,title:t.title,assignee:map.get(t.assigned_to)||"Unassigned",assigneeId:t.assigned_to||null,due:t.due_at?new Date(t.due_at).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—",status:t.status}));
 }
 
 export async function createJob(input:{clientId?:string|null;numberOfVehicles:number;scheduledDate:string;location?:string;vehicleMake?:string;priority?:string;description?:string;tssOfficerId?:string|null},role:Role){
@@ -63,7 +74,7 @@ export async function createTask(input:{title:string;description?:string;dueAt?:
   if(role!=="Super Admin") throw new Error("Only Super Admin can create and assign tasks.");
   const {data:latest,error:latestError}=await supabase.from("tasks").select("task_id").like("task_id","TASK-%").order("task_id",{ascending:false}).limit(1);
   if(latestError) throw latestError;
-  const next=(latest?.[0]?.task_id?.replace("TASK-","")?Number(latest[0].task_id.replace("TASK-","")):0)+1;
+  const next=(latest?.[0]?.task_id?.replace("TASK-","")?Number(latest[0].task_id.replace("TASK-",""):0)+1;
   const taskId=`TASK-${String(next).padStart(3,"0")}`;
   const {error}=await supabase.from("tasks").insert({task_id:taskId,title:input.title.trim(),description:input.description||null,due_at:input.dueAt||null,assigned_to:input.assignedTo||null,created_by:creatorId,priority:input.priority||"Normal",department:input.department||null,status:"Pending"});
   if(error) throw error;
