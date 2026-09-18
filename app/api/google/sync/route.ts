@@ -6,7 +6,8 @@ export const runtime="nodejs";
 
 export async function POST(request:Request){
   try{
-    const user=await getUserFromBearer(request.headers.get("authorization"));\n    await assertSuperAdmin(user.id);
+    const user=await getUserFromBearer(request.headers.get("authorization"));
+    await assertSuperAdmin(user.id);
     const results=await syncGoogleSheets(user.id);
     return NextResponse.json({ok:true,results});
   }catch(error){
