@@ -9,6 +9,9 @@ export type WeeklyRecord={id:string;technician:string;technicianId:string;week:s
 export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean};
 export type NotificationRecord={id:string;title:string;message:string;type:string;readAt:string|null;createdAt:string;relatedTaskId:string|null};
 
+type ChargeClientLookup={id:string;name:string|null};
+type WeeklyProfileLookup={id:string;full_name:string|null};
+
 const safeDate=(value:string|null)=>value??"";
 const num=(value:number|null)=>Number(value??0);
 
@@ -44,22 +47,25 @@ export async function loadCharges():Promise<ChargeRecord[]>{
   if(!supabase) return [];
   const {data,error}=await supabase.from("miscellaneous_charges").select("id,charge_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved,client_id").order("created_at",{ascending:false});
   if(error) throw error;
-  const ids=[...new Set((data??[]).map(c=>c.client_id).filter(Boolean))];
-  const {data:clients,error:clientError}=ids.length?await supabase.from("clients").select("id,name").in("id",ids):{data:[],error:null} as any;
+  const rows=(data??[]);
+  const ids=Array.from(new Set(rows.map(c=>c.client_id).filter(Boolean)));
+  const {data:clients,error:clientError}=ids.length?await supabase.from("clients").select("id,name").in("id",ids):Promise.resolve({data:[],error:null} as {data:ChargeClientLookup[];error:null});
   if(clientError) throw clientError;
-  const map=new Map<string,string>((clients??[]).map(c=>[c.id,String(c.name)]));
-  return (data??[]).map(c=>({id:c.id,chargeId:c.charge_id,client:map.get(c.client_id)||"—",clientId:c.client_id||null,location:c.location??"",logistics:num(c.logistics),accommodation:num(c.accommodation),swap:num(c.swap),deinstallation:num(c.deinstallation),reinstallation:num(c.reinstallation),healthCheck:num(c.health_check),simReplacement:num(c.sim_replacement),others:num(c.others),status:c.paid_or_approved??"Pending"}));
+  const clientRows=(clients??[]) as ChargeClientLookup[];
+  const map=new Map<string,string>((clientRows.map(c=>[c.id,String(c.name??"—")])));
+  return (data??[]).map(c=>({id:c.id,chargeId:c.charge_id,client:map.get(c.client_id ?? "")||"—",clientId:c.client_id||null,location:c.location??"",logistics:num(c.logistics),accommodation:num(c.accommodation),swap:num(c.swap),deinstallation:num(c.deinstallation),reinstallation:num(c.reinstallation),healthCheck:num(c.health_check),simReplacement:num(c.sim_replacement),others:num(c.others),status:c.paid_or_approved??"Pending"}));
 }
 
 export async function loadWeekly():Promise<WeeklyRecord[]>{
   if(!supabase) return [];
   const {data,error}=await supabase.from("technician_weekly_activity").select("id,technician_id,week_start,projects_completed,vehicles_completed,remarks,updated_at").order("week_start",{ascending:false});
   if(error) throw error;
-  const ids=[...new Set((data??[]).map(x=>x.technician_id))];
-  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):{data:[],error:null} as any;
+  const ids=Array.from(new Set((data??[]).map(x=>x.technician_id).filter(Boolean)));
+  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:WeeklyProfileLookup[];error:null});
   if(profileError) throw profileError;
-  const map=new Map<string,string>((profiles??[]).map(p=>[p.id,String(p.full_name)]));
-  return (data??[]).map(x=>({id:x.id,technician:map.get(x.technician_id)||"—",technicianId:x.technician_id,week:new Date(`${x.week_start}T00:00:00`).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),weekStart:x.week_start,projects:Number(x.projects_completed),vehiclesCompleted:Number(x.vehicles_completed),date:new Date(x.updated_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),remarks:x.remarks??""}));
+  const profileRows=(profiles??[]) as WeeklyProfileLookup[];
+  const map=new Map<string,string>(profileRows.map(p=>[p.id,String(p.full_name??"User")]));
+  return (data??[]).map(x=>({id:x.id,technician:map.get(x.technician_id ?? "")||"—",technicianId:x.technician_id,week:new Date(`${x.week_start}T00:00:00`).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),weekStart:x.week_start,projects:Number(x.projects_completed),vehiclesCompleted:Number(x.vehicles_completed),date:new Date(x.updated_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),remarks:x.remarks??""}));
 }
 
 export async function loadNotifications(userId:string):Promise<NotificationRecord[]>{
