@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { createOAuthState, createGoogleAuthorizationUrl, getUserFromBearer } from "../../../../lib/googleServer";
+import { createOAuthState, createGoogleAuthorizationUrl, assertSuperAdmin, getUserFromBearer } from "../../../../lib/googleServer";
 
 export const runtime="nodejs";
 
 export async function POST(request:Request){
   try{
-    const user=await getUserFromBearer(request.headers.get("authorization"));
+    const user=await getUserFromBearer(request.headers.get("authorization"));\n    await assertSuperAdmin(user.id);
     const state=createOAuthState(user.id);
     const url=createGoogleAuthorizationUrl(state);
     const response=NextResponse.json({url});
