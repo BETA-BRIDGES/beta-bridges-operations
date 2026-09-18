@@ -6,6 +6,14 @@ const OAUTH_SCOPES=["https://www.googleapis.com/auth/spreadsheets"];
 
 function env(name:string){const value=process.env[name];if(!value) throw new Error(`Missing required environment variable: ${name}`);return value;}
 
+export async function assertSuperAdmin(userId:string){
+  const supabase=getServiceSupabase();
+  const {data,error}=await supabase.from("profiles").select("role,active").eq("id",userId).maybeSingle();
+  if(error) throw error;
+  if(!data||data.active!==true||data.role!=="Super Admin") throw new Error("Only Super Admin can manage Google Sheets integration.");
+  return supabase;
+}
+
 export function getServiceSupabase():SupabaseClient{
   return createClient(env("NEXT_PUBLIC_SUPABASE_URL"),env("SUPABASE_SERVICE_ROLE_KEY"),{auth:{autoRefreshToken:false,persistSession:false}});
 }
