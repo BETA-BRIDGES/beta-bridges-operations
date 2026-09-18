@@ -40,7 +40,7 @@ export function verifyOAuthState(state:string){
   const [payload,signature]=state.split(".");
   if(!payload||!signature) throw new Error("Invalid OAuth state.");
   const expected=crypto.createHmac("sha256",stateSecret()).update(payload).digest("base64url");
-  if(!crypto.timingSafeEqual(Buffer.from(signature),Buffer.from(expected))) throw new Error("Invalid OAuth state signature.");
+  const signatureBuffer=Buffer.from(signature);\n  const expectedBuffer=Buffer.from(expected);\n  if(signatureBuffer.length!==expectedBuffer.length||!crypto.timingSafeEqual(signatureBuffer,expectedBuffer)) throw new Error("Invalid OAuth state signature.");
   const decoded=JSON.parse(Buffer.from(payload,"base64url").toString("utf8")) as {userId:string;nonce:string;exp:number};
   if(!decoded.userId||!decoded.exp||decoded.exp<Date.now()) throw new Error("OAuth state expired.");
   return decoded;
