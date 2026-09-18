@@ -5,7 +5,8 @@ export const runtime="nodejs";
 
 export async function GET(request:Request){
   try{
-    const user=await getUserFromBearer(request.headers.get("authorization"));\n    await assertSuperAdmin(user.id);
+    const user=await getUserFromBearer(request.headers.get("authorization"));
+    await assertSuperAdmin(user.id);
     const supabase=getServiceSupabase();
     const [{data:token,error:tokenError},{data:connections,error:connectionError}]=await Promise.all([
       supabase.from("google_oauth_tokens").select("id,google_email,scopes,updated_at").eq("user_id",user.id).maybeSingle(),
