@@ -32,7 +32,7 @@ export async function loadJobs():Promise<AppJob[]>{
   const techRows=(techs??[]) as ProfileLookup[];
   const clientMap=new Map<string,string|null>(clientRows.map((c:ClientLookup)=>[c.id,c.name]));
   const techMap=new Map<string,string|null>(techRows.map((t:ProfileLookup)=>[t.id,t.full_name]));
-  return rows.map(j=>({id:j.id,jobId:j.job_id,client:clientMap.get(j.client_id)||"—",clientId:j.client_id||null,vehicles:j.number_of_vehicles,date:formatDate(j.scheduled_date),technician:techMap.get(j.assigned_technician_id)||"Unassigned",technicianId:j.assigned_technician_id||null,status:j.status,location:j.location||""}));
+  return rows.map(j=>({id:j.id,jobId:j.job_id,client:clientMap.get(j.client_id ?? "")||"—",clientId:j.client_id||null,vehicles:j.number_of_vehicles,date:formatDate(j.scheduled_date),technician:techMap.get(j.assigned_technician_id ?? "")||"Unassigned",technicianId:j.assigned_technician_id||null,status:j.status,location:j.location||""}));
 }
 
 export async function loadTasks():Promise<AppTask[]>{
@@ -45,7 +45,7 @@ export async function loadTasks():Promise<AppTask[]>{
   if(profileError) throw profileError;
   const profileRows=(profiles??[]) as TaskProfileLookup[];
   const map=new Map<string,string|null>(profileRows.map((p:TaskProfileLookup)=>[p.id,p.full_name]));
-  return rows.map(t=>({id:t.id,taskKey:t.task_id,title:t.title,assignee:map.get(t.assigned_to)||"Unassigned",assigneeId:t.assigned_to||null,due:t.due_at?new Date(t.due_at).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—",status:t.status}));
+  return rows.map(t=>({id:t.id,taskKey:t.task_id,title:t.title,assignee:map.get(t.assigned_to ?? "")||"Unassigned",assigneeId:t.assigned_to||null,due:t.due_at?new Date(t.due_at).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—",status:t.status}));
 }
 
 export async function createJob(input:{clientId?:string|null;numberOfVehicles:number;scheduledDate:string;location?:string;vehicleMake?:string;priority?:string;description?:string;tssOfficerId?:string|null},role:Role){
