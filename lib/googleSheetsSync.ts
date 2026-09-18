@@ -84,7 +84,7 @@ async function buildRows(module:string,supabase:any){
     const rows=[[...technicians,"TOTAL"]];
     for(let week=1;week<=5;week++){
       const values=technicians.map(t=>bucket.get(`${week}|${t}`)??"");
-      rows.push([`WEEK ${week}`,...values,values.reduce((a,b)=>a+number(b),0)] as any);
+      rows.push([`WEEK ${week}`,...values,values.reduce<number>((a,b)=>a+number(b),0)] as any);
     }
     const totals=technicians.map(t=>[1,2,3,4,5].reduce((sum,w)=>sum+number(bucket.get(`${w}|${t}`)??0),0));
     rows.push(["TOTAL",...totals,totals.reduce((a,b)=>a+b,0)] as any);
