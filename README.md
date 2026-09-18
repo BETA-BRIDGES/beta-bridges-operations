@@ -65,7 +65,7 @@ Never commit `.env.local` or private credentials.
 The six supplied legacy spreadsheets are mapped in `lib/googleSheets.ts`. Initial synchronization direction is platform-to-sheet so the application remains the operational source of truth while the legacy sheets remain available for reporting and continuity.
 
 ### Google authorization
-The app uses Google’s OAuth 2.0 web-server flow with offline access, stores the refresh token encrypted at rest, and uses the Google Sheets Values API for spreadsheet export. citeturn976990search0turn976990search1
+The app uses Google OAuth 2.0 server-side authorization with offline access, stores the refresh token encrypted at rest, and uses the Google Sheets Values API for spreadsheet export.
 
 1. In Google Cloud, enable the Google Sheets API for the project.
 2. Create OAuth credentials for a **Web application**.
