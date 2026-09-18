@@ -5,7 +5,8 @@ export const runtime="nodejs";
 
 export async function POST(request:Request){
   try{
-    const user=await getUserFromBearer(request.headers.get("authorization"));\n    await assertSuperAdmin(user.id);
+    const user=await getUserFromBearer(request.headers.get("authorization"));
+    await assertSuperAdmin(user.id);
     const state=createOAuthState(user.id);
     const url=createGoogleAuthorizationUrl(state);
     const response=NextResponse.json({url});
