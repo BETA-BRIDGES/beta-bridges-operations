@@ -41,7 +41,7 @@ export async function loadTasks():Promise<AppTask[]>{
   if(error) throw error;
   const rows=(data??[]) as TaskLookupRow[];
   const ids=Array.from(new Set(rows.map(t=>t.assigned_to).filter(Boolean)));
-  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:TaskProfileLookup[];error:null});
+  const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:TaskProfileLookup[];error:null}));
   if(profileError) throw profileError;
   const profileRows=(profiles??[]) as TaskProfileLookup[];
   const map=new Map<string,string|null>(profileRows.map((p:TaskProfileLookup)=>[p.id,p.full_name]));
@@ -101,7 +101,7 @@ export async function loadTaskComments(taskId:string):Promise<TaskComment[]>{
   const {data,error}=await supabase.from("task_comments").select("id,comment,created_at,user_id").eq("task_id",taskId).order("created_at",{ascending:true});
   if(error) throw error;
   const ids=Array.from(new Set((data??[]).map(x=>x.user_id).filter(Boolean)));
-  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:{id:string;full_name:string|null}[];error:null});
+  const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:{id:string;full_name:string|null}[];error:null});
   if(profileError) throw profileError;
   const map=new Map<string,string>((profiles??[]).map(p=>[String(p.id),String(p.full_name??"User")]));
   return (data??[]).map(x=>({id:String(x.id),comment:String(x.comment??""),createdAt:new Date(x.created_at).toLocaleString("en-GB"),user:map.get(String(x.user_id))||"User"}));
