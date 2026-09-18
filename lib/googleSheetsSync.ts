@@ -17,7 +17,7 @@ function col(n:number){let out="";while(n>0){const r=(n-1)%26;out=String.fromCha
 
 async function buildRows(module:string,supabase:any){
   if(module==="dailyJobListing"){
-    const {data,error}=await supabase.from("jobs").select("job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,location,client_id,tss_officer_id").order("scheduled_date",{ascending:true});
+    const {data,error}=await supabase.from("jobs").select("job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id").order("scheduled_date",{ascending:true});
     if(error) throw error;
     const clientIds=Array.from(new Set((data??[]).map((x:any)=>x.client_id).filter(Boolean)));
     const officerIds=Array.from(new Set((data??[]).map((x:any)=>x.tss_officer_id).filter(Boolean)));
