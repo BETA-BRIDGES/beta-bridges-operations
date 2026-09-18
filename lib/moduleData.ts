@@ -8,6 +8,7 @@ export type CompletionRecord={id:string;jobId:string;deviceId:string;date:string
 export type WeeklyRecord={id:string;technician:string;technicianId:string;week:string;weekStart:string;projects:number;vehiclesCompleted:number;date:string;remarks:string};
 export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean};
 export type NotificationRecord={id:string;title:string;message:string;type:string;readAt:string|null;createdAt:string;relatedTaskId:string|null};
+export type ReminderRecord={id:string;title:string;details:string;userId:string|null;user:string;remindAt:string;sentAt:string|null;createdAt:string};
 
 type ChargeClientLookup={id:string;name:string|null};
 type WeeklyProfileLookup={id:string;full_name:string|null};
@@ -73,6 +74,31 @@ export async function loadNotifications(userId:string):Promise<NotificationRecor
   const {data,error}=await supabase.from("notifications").select("id,title,message,notification_type,read_at,created_at,related_task_id").eq("user_id",userId).order("created_at",{ascending:false}).limit(50);
   if(error) throw error;
   return (data??[]).map(n=>({id:n.id,title:n.title,message:n.message,type:n.notification_type,readAt:n.read_at??null,createdAt:new Date(n.created_at).toLocaleString("en-GB"),relatedTaskId:n.related_task_id??null}));
+}
+
+export async function loadReminders(userId:string):Promise<ReminderRecord[]>{
+  if(!supabase) return [];
+  const {data,error}=await supabase.from("reminders").select("id,title,details,user_id,remind_at,sent_at,created_at").order("remind_at",{ascending:true});
+  if(error) throw error;
+  const rows=data??[];
+  const ids=Array.from(new Set(rows.map(r=>r.user_id).filter(Boolean)));
+  const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:{id:string;full_name:string|null}[];error:null}));
+  if(profileError) throw profileError;
+  const map=new Map<string,string>((profiles??[]).map(p=>[p.id,p.full_name??"User"]));
+  return rows.map(r=>({id:r.id,title:r.title,details:r.details??"",userId:r.user_id??null,user:map.get(r.user_id??"")||"User",remindAt:new Date(r.remind_at).toLocaleString("en-GB"),sentAt:r.sent_at?new Date(r.sent_at).toLocaleString("en-GB"):null,createdAt:new Date(r.created_at).toLocaleString("en-GB")}));
+}
+export async function createReminder(input:{title:string;details?:string;userId?:string|null;remindAt:string},role:Role){
+  if(!supabase) return null;
+  if(role!=="Super Admin") throw new Error("Only Super Admin can create reminders.");
+  const {data,error}=await supabase.from("reminders").insert({title:input.title.trim(),details:input.details||null,user_id:input.userId||null,remind_at:input.remindAt}).select("id").single();
+  if(error) throw error;
+  return data.id as string;
+}
+export async function markReminderSent(id:string,role:Role){
+  if(!supabase) return;
+  if(role!=="Super Admin") throw new Error("Only Super Admin can mark reminders as sent.");
+  const {error}=await supabase.from("reminders").update({sent_at:new Date().toISOString()}).eq("id",id);
+  if(error) throw error;
 }
 
 export async function markNotificationRead(id:string){
