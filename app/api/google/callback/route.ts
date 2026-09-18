@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createGoogleOAuthClient, decryptSecret, encryptSecret, getServiceSupabase, verifyOAuthState } from "../../../../lib/googleServer";
+import { assertSuperAdmin, createGoogleOAuthClient, encryptSecret, getServiceSupabase, verifyOAuthState } from "../../../../lib/googleServer";
 
 export const runtime="nodejs";
 
@@ -13,6 +13,7 @@ export async function GET(request:Request){
   try{
     if(!code||!state||!cookie||state!==decodeURIComponent(cookie)) throw new Error("Invalid or missing Google OAuth state.");
     const {userId}=verifyOAuthState(state);
+    await assertSuperAdmin(userId);
     const client=createGoogleOAuthClient();
     const {tokens}=await client.getToken(code);
     if(!tokens.refresh_token) throw new Error("Google did not return a refresh token. Re-authorize with consent.");
