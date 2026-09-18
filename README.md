@@ -45,6 +45,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=
+SUPABASE_SERVICE_ROLE_KEY=
+GOOGLE_OAUTH_STATE_SECRET=
+GOOGLE_TOKEN_ENCRYPTION_KEY=
 ```
 
 Never commit `.env.local` or private credentials.
@@ -60,6 +63,21 @@ Never commit `.env.local` or private credentials.
 
 ## Google Sheets
 The six supplied legacy spreadsheets are mapped in `lib/googleSheets.ts`. Initial synchronization direction is platform-to-sheet so the application remains the operational source of truth while the legacy sheets remain available for reporting and continuity.
+
+### Google authorization
+The app uses Google’s OAuth 2.0 web-server flow with offline access, stores the refresh token encrypted at rest, and uses the Google Sheets Values API for spreadsheet export. citeturn976990search0turn976990search1
+
+1. In Google Cloud, enable the Google Sheets API for the project.
+2. Create OAuth credentials for a **Web application**.
+3. Add the exact callback URL:
+   `https://YOUR-DOMAIN/api/google/callback`
+   and use `http://localhost:3000/api/google/callback` for local testing.
+4. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI`.
+5. Generate strong random values for `GOOGLE_OAUTH_STATE_SECRET` and `GOOGLE_TOKEN_ENCRYPTION_KEY`. The latter must decode to exactly 32 bytes.
+6. Set `SUPABASE_SERVICE_ROLE_KEY` only as a server-side deployment secret. Never expose it as a `NEXT_PUBLIC_` variable.
+7. Sign in as Super Admin, open Administration, connect the Google account that has access to the six legacy spreadsheets, then use **Sync all six**.
+
+The Google OAuth flow requests offline authorization so the platform can refresh access without requiring the user to remain present. citeturn976990search0
 
 ## Verification
 A GitHub Actions workflow in `.github/workflows/ci.yml` runs dependency installation and `npm run build` on pushes and pull requests to `main`.
