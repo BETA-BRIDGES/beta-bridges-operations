@@ -8,6 +8,7 @@ import { AppJob, AppTask, addTaskComment, createJob, createTask, loadJobs, loadT
 import { ClientRecord, ChargeRecord, CompletionRecord, NotificationRecord, ReminderRecord, StockRecord, UserRecord, WeeklyRecord, addCompletionRemark, createCharge, createClient, createCompletion, createStock, loadCharges, loadClients, loadCompletions, loadNotifications, loadProfiles, loadStock, loadReminders, loadWeekly, markNotificationRead, markReminderSent, updateCharge, updateClient, updateStock, updateUserProfile, upsertWeekly, createReminder } from "../lib/moduleData";
 
 type Profile={id:string;full_name:string;email:string;role:Role;active:boolean};
+type GoogleStatus={connected:boolean;googleEmail:string|null;connections:{module:string;spreadsheet_id:string;sheet_name:string|null;last_sync_at:string|null;last_error:string|null;active:boolean;sync_direction:string}[]};
 type FormState=Record<string,string>;
 
 const MODULES=["Daily Job Listing","Daily Job Done","Used Stock","Techie Weekly Activity","Miscellaneous Charges","Client Data","Tasks"] as const;
@@ -38,6 +39,9 @@ export default function Home(){
   const [users,setUsers]=useState<UserRecord[]>([]);
   const [notifications,setNotifications]=useState<NotificationRecord[]>([]);
   const [reminders,setReminders]=useState<ReminderRecord[]>([]);
+  const [googleStatus,setGoogleStatus]=useState<GoogleStatus|null>(null);
+  const [googleBusy,setGoogleBusy]=useState(false);
+  const [googleMessage,setGoogleMessage]=useState("");
   const [busy,setBusy]=useState(false);
   const [modal,setModal]=useState(false);
   const [editing,setEditing]=useState(false);
@@ -77,8 +81,33 @@ export default function Home(){
     const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{if(!session) router.replace("/login")});
     return()=>{mounted=false;subscription.unsubscribe()};
   },[router]);
-  useEffect(()=>{if(profile) void refresh()},[profile]);
+  useEffect(()=>{if(profile) void refresh();if(profile?.role==="Super Admin") void loadGoogleStatus()},[profile]);
   async function signOut(){if(supabase) await supabase.auth.signOut();else setModule("Dashboard")}
+  async function googleRequest(path:string,method:"GET"|"POST"="GET"){
+    if(!supabase) throw new Error("Supabase is not configured.");
+    const {data:{session}}=await supabase.auth.getSession();
+    if(!session) throw new Error("Authentication required.");
+    const response=await fetch(path,{method,headers:{authorization:`Bearer ${session.access_token}`}});
+    const body=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(body.error||"Google Sheets request failed.");
+    return body;
+  }
+  async function loadGoogleStatus(){
+    if(role!=="Super Admin") return;
+    try{setGoogleStatus(await googleRequest("/api/google/status"));}catch(error){setGoogleMessage(error instanceof Error?error.message:"Unable to load Google Sheets status.")}
+  }
+  async function connectGoogle(){
+    setGoogleBusy(true);setGoogleMessage("");
+    try{const data=await googleRequest("/api/google/connect","POST");window.location.href=data.url;}catch(error){setGoogleMessage(error instanceof Error?error.message:"Unable to connect Google Sheets.");setGoogleBusy(false)}
+  }
+  async function syncGoogle(){
+    setGoogleBusy(true);setGoogleMessage("");
+    try{const data=await googleRequest("/api/google/sync","POST");const failed=Object.entries(data.results??{}).filter(([,v]:any)=>!v.ok);setGoogleMessage(failed.length?`${failed.length} sheet(s) reported an error during sync.`:"All configured Google Sheets were synchronized successfully.");await loadGoogleStatus();}catch(error){setGoogleMessage(error instanceof Error?error.message:"Google Sheets sync failed.");}finally{setGoogleBusy(false)}
+  }
+  async function disconnectGoogle(){
+    setGoogleBusy(true);setGoogleMessage("");
+    try{await googleRequest("/api/google/disconnect","POST");setGoogleMessage("Google Sheets disconnected.");await loadGoogleStatus();}catch(error){setGoogleMessage(error instanceof Error?error.message:"Unable to disconnect Google Sheets.");}finally{setGoogleBusy(false)}
+  }
 
   async function bootstrap(){
     if(!supabase||!bootstrapName.trim()) return;
@@ -179,7 +208,7 @@ export default function Home(){
       {module==="Client Data"&&<section className="card"><div className="section-head"><div><h3>Client Data List</h3><p className="muted">Master client directory used by jobs and billing.</p></div>{canCreate(role,module)&&<button className="btn primary" onClick={()=>openCreate(module)}>Add client</button>}</div><Table headers={["Client","Contact","Phone","Email","Location","Category","Status","Actions"]}>{clients.map(c=><tr key={c.id}><td>{c.name}</td><td>{pretty(c.contactPerson)}</td><td>{pretty(c.phone)}</td><td>{pretty(c.email)}</td><td>{pretty(c.location)}</td><td>{pretty(c.category)}</td><td>{c.status}</td><td>{can(role,module,"edit")&&<button className="btn small" onClick={()=>openEdit(module,c)}>Edit</button>}</td></tr>)}</Table></section>}
       {module==="Tasks"&&<section className="card"><div className="section-head"><div><h3>Tasks & Reminders</h3><p className="muted">Super Admin assigns tasks. Field Technician can update assigned work, comment and complete it.</p></div>{canCreate(role,module)&&<button className="btn primary" onClick={()=>openCreate(module)}>Create task</button>}</div><Table headers={["Task ID","Title","Assignee","Due","Status","Actions"]}>{tasks.map(t=><tr key={t.id}><td>{t.taskKey}</td><td>{t.title}</td><td>{t.assignee}</td><td>{t.due}</td><td>{t.status}</td><td>{can(role,module,"complete")&&<button className="btn small" onClick={()=>taskAction(t,"Completed")}>Complete</button>}{can(role,module,"comment")&&<button className="btn small" onClick={()=>showComments(t)}>Comment</button>}</td></tr>)}</Table></section>}
       {module==="Notifications"&&<section className="card"><div className="section-head"><div><h3>Notifications</h3><p className="muted">Task assignments and system notifications for this account.</p></div></div>{notifications.length===0?<p className="muted">No notifications.</p>:notifications.map(n=><div className={`task ${n.readAt?"":"unread"}`} key={n.id}><strong>{n.title}</strong><span>{n.message} · {n.createdAt}</span>{!n.readAt&&<button className="btn small" onClick={async()=>{await markNotificationRead(n.id);if(profile) setNotifications(await loadNotifications(profile.id))}}>Mark read</button>}</div>)}</section>}
-      {module==="Administration"&&role==="Super Admin"&&<section className="section two"><div className="card"><h3>Users & Roles</h3><Table headers={["Name","Email","Role","Status","Actions"]}>{users.map(u=><tr key={u.id}><td>{u.fullName}</td><td>{u.email}</td><td>{u.role}</td><td>{u.active?"Active":"Inactive"}</td><td><button className="btn small" onClick={()=>openUserEdit(u)}>Edit access</button></td></tr>)}</Table></div><div className="card"><div className="section-head"><div><h3>Reminders</h3><p className="muted">Scheduled operational reminders stored in Supabase.</p></div><button className="btn primary" onClick={openReminderCreate}>New reminder</button></div><Table headers={["Title","Assigned user","Remind at","Sent","Actions"]}>{reminders.map(r=><tr key={r.id}><td>{r.title}</td><td>{r.user}</td><td>{r.remindAt}</td><td>{r.sentAt?"Sent":"Pending"}</td><td>{!r.sentAt&&<button className="btn small" onClick={async()=>{await markReminderSent(r.id,role);if(profile) setReminders(await loadReminders(profile.id))}}>Mark sent</button>}</td></tr>)}</Table></div><div className="card"><h3>Google Sheets Connections</h3><p className="muted">The six legacy spreadsheet IDs and mappings are stored in the project. OAuth authorization is the remaining external Google step.</p><span className="badge warn">Google authorization pending</span></div></section>}
+      {module==="Administration"&&role==="Super Admin"&&<section className="section two"><div className="card"><h3>Users & Roles</h3><Table headers={["Name","Email","Role","Status","Actions"]}>{users.map(u=><tr key={u.id}><td>{u.fullName}</td><td>{u.email}</td><td>{u.role}</td><td>{u.active?"Active":"Inactive"}</td><td><button className="btn small" onClick={()=>openUserEdit(u)}>Edit access</button></td></tr>)}</Table></div><div className="card"><div className="section-head"><div><h3>Reminders</h3><p className="muted">Scheduled operational reminders stored in Supabase.</p></div><button className="btn primary" onClick={openReminderCreate}>New reminder</button></div><Table headers={["Title","Assigned user","Remind at","Sent","Actions"]}>{reminders.map(r=><tr key={r.id}><td>{r.title}</td><td>{r.user}</td><td>{r.remindAt}</td><td>{r.sentAt?"Sent":"Pending"}</td><td>{!r.sentAt&&<button className="btn small" onClick={async()=>{await markReminderSent(r.id,role);if(profile) setReminders(await loadReminders(profile.id))}}>Mark sent</button>}</td></tr>)}</Table></div><div className="card"><div className="section-head"><div><h3>Google Sheets</h3><p className="muted">Connect the authorized Google account and synchronize the six configured legacy sheets from the Supabase operational data.</p></div><span className={`badge ${googleStatus?.connected?"ok":"warn"}`}>{googleStatus?.connected?"Connected":"Not connected"}</span></div>{googleMessage&&<p className="muted">{googleMessage}</p>}<div className="section-head"><div><strong>{googleStatus?.connected?"Google authorization active":"Google authorization required"}</strong>{googleStatus?.googleEmail&&<p className="muted">{googleStatus.googleEmail}</p>}</div><div className="modal-actions"><button className="btn primary" type="button" disabled={googleBusy} onClick={connectGoogle}>{googleBusy?"Working…":"Connect Google"}</button>{googleStatus?.connected&&<><button className="btn" type="button" disabled={googleBusy} onClick={syncGoogle}>Sync all six</button><button className="btn" type="button" disabled={googleBusy} onClick={disconnectGoogle}>Disconnect</button></>}</div></div>{googleStatus?.connections&&<Table headers={["Module","Sheet","Last sync","Status"]}>{googleStatus.connections.map(x=><tr key={x.module}><td>{x.module}</td><td>{x.sheet_name||"Default sheet"}</td><td>{x.last_sync_at?new Date(x.last_sync_at).toLocaleString("en-GB"):"Never"}</td><td>{x.last_error?<span className="badge warn">Error</span>:<span className="badge ok">Ready</span>}</td></tr>)}</Table>}</div></section>}
       <div className="build-note">Operational tables now read from Supabase when configured. Database RLS remains the final enforcement layer for every role and field restriction.</div>
     </main>
 
