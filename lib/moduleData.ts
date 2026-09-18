@@ -88,6 +88,12 @@ export async function createClient(input:{name:string;contactPerson?:string;phon
   if(error) throw error;
   return data.id as string;
 }
+export async function updateUserProfile(id:string,input:{role?:Role;active?:boolean},role:Role){
+  if(!supabase) return;
+  if(role!=="Super Admin") throw new Error("Only Super Admin can edit user permissions.");
+  const {error}=await supabase.from("profiles").update(input).eq("id",id);
+  if(error) throw error;
+}
 export async function updateClient(id:string,input:Record<string,unknown>,role:Role){
   if(!supabase) return;
   if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to edit a client.");
