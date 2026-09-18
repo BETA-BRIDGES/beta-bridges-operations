@@ -49,7 +49,7 @@ export async function loadCharges():Promise<ChargeRecord[]>{
   if(error) throw error;
   const rows=(data??[]);
   const ids=Array.from(new Set(rows.map(c=>c.client_id).filter(Boolean)));
-  const {data:clients,error:clientError}=ids.length?await supabase.from("clients").select("id,name").in("id",ids):Promise.resolve({data:[],error:null} as {data:ChargeClientLookup[];error:null});
+  const {data:clients,error:clientError}=ids.length?await supabase.from("clients").select("id,name").in("id",ids):Promise.resolve({data:[],error:null} as {data:ChargeClientLookup[];error:null}));
   if(clientError) throw clientError;
   const clientRows=(clients??[]) as ChargeClientLookup[];
   const map=new Map<string,string>((clientRows.map(c=>[c.id,String(c.name??"—")])));
@@ -61,7 +61,7 @@ export async function loadWeekly():Promise<WeeklyRecord[]>{
   const {data,error}=await supabase.from("technician_weekly_activity").select("id,technician_id,week_start,projects_completed,vehicles_completed,remarks,updated_at").order("week_start",{ascending:false});
   if(error) throw error;
   const ids=Array.from(new Set((data??[]).map(x=>x.technician_id).filter(Boolean)));
-  const {data:profiles,error:profileError}=ids.length?await supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:WeeklyProfileLookup[];error:null});
+  const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:WeeklyProfileLookup[];error:null}));
   if(profileError) throw profileError;
   const profileRows=(profiles??[]) as WeeklyProfileLookup[];
   const map=new Map<string,string>(profileRows.map(p=>[p.id,String(p.full_name??"User")]));
