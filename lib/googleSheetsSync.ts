@@ -30,7 +30,7 @@ async function buildRows(module:string,supabase:any){
     const om=new Map((officers??[]).map((x:any)=>[x.id,text(x.full_name)]));
     return [headers.dailyJobListing,...(data??[]).map((x:any)=>[
       cm.get(x.client_id??"")||"—",text(x.job_type),number(x.number_of_vehicles),text(x.vehicle_make),
-      text(x.scheduled_date),text(x.location),om.get(x.tss_officer_id??"")||""
+      text(x.scheduled_time),text(x.location),om.get(x.tss_officer_id??"")||""
     ])];
   }
   if(module==="dailyJobDone"){
