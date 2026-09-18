@@ -49,7 +49,7 @@ export async function loadCharges():Promise<ChargeRecord[]>{
   if(error) throw error;
   const rows=(data??[]);
   const ids=Array.from(new Set(rows.map(c=>c.client_id).filter(Boolean)));
-  const {data:clients,error:clientError}=ids.length?await supabase.from("clients").select("id,name").in("id",ids):Promise.resolve({data:[],error:null} as {data:ChargeClientLookup[];error:null}));
+  const {data:clients,error:clientError}=await (ids.length?supabase.from("clients").select("id,name").in("id",ids):Promise.resolve({data:[],error:null} as {data:ChargeClientLookup[];error:null}));
   if(clientError) throw clientError;
   const clientRows=(clients??[]) as ChargeClientLookup[];
   const map=new Map<string,string>((clientRows.map(c=>[c.id,String(c.name??"—")])));
