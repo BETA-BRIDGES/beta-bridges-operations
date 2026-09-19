@@ -22,7 +22,7 @@ function quoteSheetTitle(title:string){return \`'${title.replace(/'/g,"''")}'\`;
 function dateKeyFromValue(value:unknown){
   if(!value) return null;
   const s=String(value).trim();
-  const m=s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);
+  const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(m) return \`${m[1]}-${m[2]}-${m[3]}\`;
   const d=new Date(s);
   if(Number.isNaN(d.getTime())) return null;
@@ -31,11 +31,11 @@ function dateKeyFromValue(value:unknown){
 
 function parseSheetDate(title:string){
   const s=title.trim();
-  let m=s.match(/^(\\d{1,2})[\\/\\-.](\\d{1,2})[\\/\\-.](\\d{4})$/);
+  let m=s.match(/^(\d{1,2})[\\/\\-.](\d{1,2})[\\/\\-.](\d{4})$/);
   if(m) return \`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}\`;
-  m=s.match(/^(\\d{4})[\\/\\-.](\\d{1,2})[\\/\\-.](\\d{1,2})$/);
+  m=s.match(/^(\d{4})[\\/\\-.](\d{1,2})[\\/\\-.](\d{1,2})$/);
   if(m) return \`${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}\`;
-  m=s.match(/^(\\d{1,2})\\s+([A-Za-z]+)\\s+(\\d{4})$/);
+  m=s.match(/^(\d{1,2})\\s+([A-Za-z]+)\\s+(\d{4})$/);
   if(m){const months=["january","february","march","april","may","june","july","august","september","october","november","december"];const idx=months.indexOf(m[2].toLowerCase());if(idx>=0) return \`${m[3]}-${String(idx+1).padStart(2,"0")}-${m[1].padStart(2,"0")}\`;}
   return null;
 }
