@@ -215,7 +215,8 @@ export async function syncGoogleSheets(userId:string){
       await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:quoteSheetTitle(sheet)});
       await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows}});
       await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
-      results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};    }catch(error){
+      results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};
+    }catch(error){
       const raw=error instanceof Error?error.message:"Unknown sync error";
       const message=raw.includes("Requested entity was not found")?
         "Google spreadsheet was not found or the connected Google account does not have access to it.":raw;
