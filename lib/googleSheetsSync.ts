@@ -15,9 +15,57 @@ function text(value:unknown){return value==null?"":String(value);}
 function number(value:unknown){return Number(value??0);}
 function col(n:number){let out="";while(n>0){const r=(n-1)%26;out=String.fromCharCode(65+r)+out;n=Math.floor((n-1)/26);}return out;}
 
-async function buildRows(module:string,supabase:any){
+type SheetMeta={title:string;hidden?:boolean};
+
+function quoteSheetTitle(title:string){return \`'${title.replace(/'/g,"''")}'\`;}
+
+function dateKeyFromValue(value:unknown){
+  if(!value) return null;
+  const s=String(value).trim();
+  const m=s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);
+  if(m) return \`${m[1]}-${m[2]}-${m[3]}\`;
+  const d=new Date(s);
+  if(Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0,10);
+}
+
+function parseSheetDate(title:string){
+  const s=title.trim();
+  let m=s.match(/^(\\d{1,2})[\\/\\-.](\\d{1,2})[\\/\\-.](\\d{4})$/);
+  if(m) return \`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}\`;
+  m=s.match(/^(\\d{4})[\\/\\-.](\\d{1,2})[\\/\\-.](\\d{1,2})$/);
+  if(m) return \`${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}\`;
+  m=s.match(/^(\\d{1,2})\\s+([A-Za-z]+)\\s+(\\d{4})$/);
+  if(m){const months=["january","february","march","april","may","june","july","august","september","october","november","december"];const idx=months.indexOf(m[2].toLowerCase());if(idx>=0) return \`${m[3]}-${String(idx+1).padStart(2,"0")}-${m[1].padStart(2,"0")}\`;}
+  return null;
+}
+
+async function listSheets(sheets:any,spreadsheetId:string):Promise<SheetMeta[]>{
+  const {data,error}=await sheets.spreadsheets.get({spreadsheetId,fields:"sheets(properties(title,hidden,index))"});
+  if(error) throw error;
+  return (data.sheets??[]).map((x:any)=>x.properties).filter((x:any)=>x?.title).map((x:any)=>({title:String(x.title),hidden:Boolean(x.hidden)}));
+}
+
+function preferredSheet(module:string,items:SheetMeta[]){
+  const visible=items.filter(x=>!x.hidden);
+  const exact=visible.find(x=>x.title==="Sheet1");
+  if(exact) return exact.title;
+  const keywords:Record<string,string[]>= {
+    miscellaneousCharges:["MISCELLANEOUS","CHARGE"],
+    clientData:["CLIENT"],
+    techieWeeklyActivity:["TECHIE","WEEKLY"]
+  };
+  const hit=visible.find(x=>keywords[module]?.some(k=>x.title.toUpperCase().includes(k)));
+  if(hit) return hit.title;
+  if(visible.length===1) return visible[0].title;
+  return visible[0]?.title||null;
+}
+
+async function buildRows(module:string,supabase:any,dateKey?:string){
   if(module==="dailyJobListing"){
-    const {data,error}=await supabase.from("jobs").select("job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id").order("scheduled_date",{ascending:true});
+    let query=supabase.from("jobs").select("job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id").order("scheduled_date",{ascending:true});
+    if(dateKey) query=query.eq("scheduled_date",dateKey);
+    const {data,error}=await query;
     if(error) throw error;
     const clientIds=Array.from(new Set((data??[]).map((x:any)=>x.client_id).filter(Boolean)));
     const officerIds=Array.from(new Set((data??[]).map((x:any)=>x.tss_officer_id).filter(Boolean)));
@@ -34,12 +82,16 @@ async function buildRows(module:string,supabase:any){
     ])];
   }
   if(module==="dailyJobDone"){
-    const {data,error}=await supabase.from("job_completions").select("device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer").order("completion_date",{ascending:false});
+    let query=supabase.from("job_completions").select("device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer").order("completion_date",{ascending:false});
+    if(dateKey) query=query.eq("completion_date",dateKey);
+    const {data,error}=await query;
     if(error) throw error;
     return [headers.dailyJobDone,...(data??[]).map((x:any)=>[text(x.device_id),text(x.completion_date),text(x.installer),text(x.location),text(x.client),text(x.vehicle_details),text(x.vehicle_make),text(x.status),text(x.tss_officer)])];
   }
   if(module==="usedStock"){
-    const {data,error}=await supabase.from("stock_transactions").select("network,device_type,device_status,device_id,sim_id,date_collected,operations_remark,operations_correction,date_issued,date_installed,installer,location,client,vehicle_details,vehicle_make,other_issues").order("date_installed",{ascending:false});
+    let query=supabase.from("stock_transactions").select("network,device_type,device_status,device_id,sim_id,date_collected,operations_remark,operations_correction,date_issued,date_installed,installer,location,client,vehicle_details,vehicle_make,other_issues").order("date_installed",{ascending:false});
+    if(dateKey) query=query.eq("date_installed",dateKey);
+    const {data,error}=await query;
     if(error) throw error;
     return [headers.usedStock,...(data??[]).map((x:any)=>[
       text(x.network),text(x.device_type),text(x.device_status),text(x.device_id),text(x.sim_id),text(x.date_collected),
@@ -99,18 +151,66 @@ export async function syncGoogleSheets(userId:string){
   const {data:connections,error}=await supabase.from("google_connections").select("module,spreadsheet_id,sheet_name,active").eq("active",true).eq("sync_direction","platform_to_sheet");
   if(error) throw error;
   const results:Record<string,{rows:number;ok:boolean;error?:string}>={};
+  const dateModules=new Set(["dailyJobListing","dailyJobDone","usedStock"]);
+  const dateFields:Record<string,{table:string;field:string}>= {
+    dailyJobListing:{table:"jobs",field:"scheduled_date"},
+    dailyJobDone:{table:"job_completions",field:"completion_date"},
+    usedStock:{table:"stock_transactions",field:"date_installed"}
+  };
+
   for(const connection of (connections??[]) as Connection[]){
     try{
+      const tabs=await listSheets(sheets,connection.spreadsheet_id);
+      if(!tabs.length) throw new Error("Google spreadsheet has no accessible worksheets.");
+
+      if(dateModules.has(connection.module) && !connection.sheet_name){
+        const meta=dateFields[connection.module];
+        const {data:dateRows,error:dateError}=await supabase.from(meta.table).select(meta.field).not(meta.field,"is",null);
+        if(dateError) throw dateError;
+        const dataDates=Array.from(new Set((dateRows??[]).map((x:any)=>dateKeyFromValue(x[meta.field])).filter(Boolean))) as string[];
+        const dateTabs=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title)})).filter(x=>x.date);
+        if(!dateTabs.length){
+          const sheet=preferredSheet(connection.module,tabs);
+          if(!sheet) throw new Error("No target worksheet could be resolved.");
+          const rows=await buildRows(connection.module,supabase);
+          const width=rows.reduce((max:number,row:any[])=>Math.max(max,row.length),0);
+          const range=`${quoteSheetTitle(sheet)}!A1:${col(width)}${rows.length}`;
+          await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:quoteSheetTitle(sheet)});
+          await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows}});
+          await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
+          results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};
+          continue;
+        }
+        let totalRows=0;
+        for(const dateKey of dataDates){
+          const tab=dateTabs.find(x=>x.date===dateKey);
+          if(!tab) continue;
+          const rows=await buildRows(connection.module,supabase,dateKey);
+          if(rows.length<=1) continue;
+          const width=rows.reduce((max:number,row:any[])=>Math.max(max,row.length),0);
+          const range=`${quoteSheetTitle(tab.title)}!A1:${col(width)}${rows.length}`;
+          await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:quoteSheetTitle(tab.title)});
+          await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows}});
+          totalRows+=Math.max(0,rows.length-1);
+        }
+        await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
+        results[connection.module]={rows:totalRows,ok:true};
+        continue;
+      }
+
+      const sheet=connection.sheet_name||preferredSheet(connection.module,tabs);
+      if(!sheet) throw new Error("No target worksheet could be resolved.");
       const rows=await buildRows(connection.module,supabase);
       const width=rows.reduce((max:number,row:any[])=>Math.max(max,row.length),0);
-      const end=col(width);
-      const range=`${connection.sheet_name||"Sheet1"}!A1:${end}${rows.length}`;
-      await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:connection.sheet_name||"Sheet1"});
+      const range=`${quoteSheetTitle(sheet)}!A1:${col(width)}${rows.length}`;
+      await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:quoteSheetTitle(sheet)});
       await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows}});
       await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
       results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};
     }catch(error){
-      const message=error instanceof Error?error.message:"Unknown sync error";
+      const raw=error instanceof Error?error.message:"Unknown sync error";
+      const message=raw.includes("Requested entity was not found")?
+        "Google spreadsheet was not found or the connected Google account does not have access to it.":raw;
       await supabase.from("google_connections").update({last_error:message,updated_at:new Date().toISOString()}).eq("module",connection.module);
       results[connection.module]={rows:0,ok:false,error:message};
     }
