@@ -173,6 +173,11 @@ export async function syncGoogleSheets(userId:string){
           const sheet=preferredSheet(connection.module,tabs);
           if(!sheet) throw new Error("No target worksheet could be resolved.");
           const rows=await buildRows(connection.module,supabase);
+          if(rows.length<=1){
+            results[connection.module]={rows:0,ok:true};
+            await supabase.from("google_connections").update({last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
+            continue;
+          }
           const width=rows.reduce((max:number,row:any[])=>Math.max(max,row.length),0);
           const range=`${quoteSheetTitle(sheet)}!A1:${col(width)}${rows.length}`;
           await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:quoteSheetTitle(sheet)});
@@ -180,8 +185,7 @@ export async function syncGoogleSheets(userId:string){
           await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
           results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};
           continue;
-        }
-        let totalRows=0;
+                let totalRows=0;
         for(const dateKey of dataDates){
           const tab=dateTabs.find(x=>x.date===dateKey);
           if(!tab) continue;
@@ -201,13 +205,17 @@ export async function syncGoogleSheets(userId:string){
       const sheet=connection.sheet_name||preferredSheet(connection.module,tabs);
       if(!sheet) throw new Error("No target worksheet could be resolved.");
       const rows=await buildRows(connection.module,supabase);
+      if(rows.length<=1){
+        results[connection.module]={rows:0,ok:true};
+        await supabase.from("google_connections").update({last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
+        continue;
+      }
       const width=rows.reduce((max:number,row:any[])=>Math.max(max,row.length),0);
       const range=`${quoteSheetTitle(sheet)}!A1:${col(width)}${rows.length}`;
       await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:quoteSheetTitle(sheet)});
       await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows}});
       await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
-      results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};
-    }catch(error){
+      results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};    }catch(error){
       const raw=error instanceof Error?error.message:"Unknown sync error";
       const message=raw.includes("Requested entity was not found")?
         "Google spreadsheet was not found or the connected Google account does not have access to it.":raw;
