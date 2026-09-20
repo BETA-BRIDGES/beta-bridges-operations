@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { assertSuperAdmin, getUserFromBearer } from "../../../../lib/googleServer";
-import { previewLegacyGoogleSheets } from "../../../../lib/googleSheetsImport";
+import { assertSuperAdmin, getUserFromBearer } from "../../../../../lib/googleServer";
+import { previewLegacyGoogleSheets } from "../../../../../lib/googleSheetsImport";
 
 export const runtime="nodejs";
 
