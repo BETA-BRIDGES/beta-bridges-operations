@@ -300,6 +300,7 @@ export async function previewLegacyGoogleSheets(userId:string){
   if(error) throw error;
   const results:any[]=[];
   for(const connection of (connections??[]) as any[]){
+    try{
     const tabs=await listSheets(sheets,connection.spreadsheet_id);
     const detected:any[]=[];
     for(const title of tabs){
@@ -314,7 +315,16 @@ export async function previewLegacyGoogleSheets(userId:string){
         if(weekRows&&headerIndex>=0) detected.push({title,headerRow:headerIndex+1,dataRows:weekRows});
       }
     }
-    results.push({module:connection.module,spreadsheetId:connection.spreadsheet_id,tabs,detected});
+      results.push({module:connection.module,spreadsheetId:connection.spreadsheet_id,tabs,detected,error:null});
+    }catch(error){
+      results.push({
+        module:connection.module,
+        spreadsheetId:connection.spreadsheet_id,
+        tabs:[],
+        detected:[],
+        error:error instanceof Error?error.message:"Unable to read spreadsheet."
+      });
+    }
   }
   return results;
 }
