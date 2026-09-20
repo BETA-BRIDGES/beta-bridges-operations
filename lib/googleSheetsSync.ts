@@ -123,13 +123,13 @@ async function buildRows(module:string,supabase:any,dateKey?:string){
     const {data:profiles,error:pe}=await supabase.from("profiles").select("id,full_name").eq("role","Field Technician");
     if(pe) throw pe;
     const nameMap=new Map((profiles??[]).map((x:any)=>[x.id,text(x.full_name).toUpperCase()]));
-    const {data,error}=await supabase.from("technician_weekly_activity").select("technician_id,week_start,projects_completed").order("week_start",{ascending:true});
+    const {data,error}=await supabase.from("technician_weekly_activity").select("technician_id,technician_name,week_start,projects_completed").order("week_start",{ascending:true});
     if(error) throw error;
     const bucket=new Map<string,number>();
     for(const x of data??[]){
       const d=new Date(String(x.week_start)+"T00:00:00");
       const week=Math.min(5,Math.floor((d.getUTCDate()-1)/7)+1);
-      const tech=nameMap.get(x.technician_id??"");
+      const tech=nameMap.get(x.technician_id??"")||text(x.technician_name).toUpperCase();
       if(!tech) continue;
       bucket.set(`${week}|${tech}`,number(x.projects_completed));
     }
