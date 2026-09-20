@@ -88,6 +88,21 @@ async function readSheet(client:sheets_v4.Sheets,spreadsheetId:string,title:stri
   const {data}=await client.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:"FORMATTED_VALUE"});
   return {title,rows:(data.values??[]) as Row[]};
 }
+
+async function loadWorkbook(client:sheets_v4.Sheets,spreadsheetId:string){
+  const titles=await listSheets(client,spreadsheetId);
+  if(!titles.length) return [] as {title:string;rows:Row[]}[];
+  const ranges=titles.map(title=>`'${title.replace(/'/g,"''")}'`);
+  const {data}=await client.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges,
+    valueRenderOption:"FORMATTED_VALUE"
+  });
+  return titles.map((title,index)=>({
+    title,
+    rows:((data.valueRanges??[])[index]?.values??[]) as Row[]
+  }));
+}
 function headerInfo(rows:Row[],expected:string[]){
   let best={index:-1,score:0};
   const wanted=new Set(expected.map(normHeader));
@@ -102,7 +117,19 @@ function headerInfo(rows:Row[],expected:string[]){
 }
 function rowMap(headers:Row,row:Row){
   const out:Record<string,string>={};
-  headers.forEach((h,i)=>{const k=norm(h); if(k) out[k]=text(row[i]);});
+  headers.forEach((h,i)=>{
+    const rawKey=norm(h);
+    const canonical=normHeader(h);
+    const value=text(row[i]);
+    if(rawKey) out[rawKey]=value;
+    if(canonical) out[canonical]=value;
+    if(canonical==="NUMBER OF JOB"){
+      out["NUMBERS OF JOB"]=value;
+      out["NUMBER OF JOBS"]=value;
+    }
+    if(canonical==="VEH DETAILS") out["VEHICLE DETAILS"]=value;
+    if(canonical==="CUSTOMER CLIENT NAME") out["CUSTOMER/ CLIENT NAME"]=value;
+  });
   return out;
 }
 function legacyClientKey(name:string){return `client|legacy|${slug(name)}`;}
@@ -135,8 +162,8 @@ async function ensureClient(supabase:any,map:Map<string,string>,name:string){
 
 async function importClientData(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const title of await listSheets(client,spreadsheetId)){
-    const sheet=await readSheet(client,spreadsheetId,title);
+  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+    const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.clientData); if(!info) continue;
     summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){
@@ -162,8 +189,8 @@ async function importJobs(supabase:any,client:sheets_v4.Sheets,spreadsheetId:str
   const {data:profiles,error:pe}=await supabase.from("profiles").select("id,full_name");
   if(pe) throw pe;
   const profileMap=new Map((profiles??[]).map((x:any)=>[norm(x.full_name),String(x.id)]));
-  for(const title of await listSheets(client,spreadsheetId)){
-    const sheet=await readSheet(client,spreadsheetId,title);
+  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+    const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing); if(!info) continue;
     summary.sheets++;
     const tabDate=parseDate(title);
@@ -192,8 +219,8 @@ async function importJobs(supabase:any,client:sheets_v4.Sheets,spreadsheetId:str
 
 async function importCompletions(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const title of await listSheets(client,spreadsheetId)){
-    const sheet=await readSheet(client,spreadsheetId,title);
+  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+    const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone); if(!info) continue;
     summary.sheets++;
     const tabDate=parseDate(title);
@@ -219,8 +246,8 @@ async function importCompletions(supabase:any,client:sheets_v4.Sheets,spreadshee
 
 async function importStock(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"usedStock",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const title of await listSheets(client,spreadsheetId)){
-    const sheet=await readSheet(client,spreadsheetId,title);
+  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+    const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.usedStock); if(!info) continue;
     summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){
@@ -249,8 +276,8 @@ async function importStock(supabase:any,client:sheets_v4.Sheets,spreadsheetId:st
 async function importCharges(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"miscellaneousCharges",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
   const clients=await clientLookup(supabase);
-  for(const title of await listSheets(client,spreadsheetId)){
-    const sheet=await readSheet(client,spreadsheetId,title);
+  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+    const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.miscellaneousCharges); if(!info) continue;
     summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){
@@ -277,11 +304,17 @@ async function importCharges(supabase:any,client:sheets_v4.Sheets,spreadsheetId:
 
 async function importWeekly(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const title of await listSheets(client,spreadsheetId)){
-    const sheet=await readSheet(client,spreadsheetId,title);
+  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+    const title=sheet.title;
     const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>/^WEEK\s+[1-5]$/i.test(text(x.r[0])));
     if(!weekRows.length) continue;
-    const headerIndex=sheet.rows.findIndex((r,i)=>i<20 && r.filter(v=>text(v)).length>=2 && r.some(v=>norm(v)==="TOTAL"));
+    const firstWeekIndex=weekRows[0].i;
+    let headerIndex=-1;
+    let bestHeaderCells=0;
+    for(let i=0;i<firstWeekIndex;i++){
+      const nonEmpty=sheet.rows[i].filter(v=>text(v)).length;
+      if(nonEmpty>=2 && nonEmpty>bestHeaderCells){bestHeaderCells=nonEmpty;headerIndex=i;}
+    }
     if(headerIndex<0) continue;
     summary.sheets++;
     const month=parseMonthTitle(sheet.rows[0]?.join(" ")||title);
@@ -324,9 +357,15 @@ export async function previewLegacyGoogleSheets(userId:string){
         const info=headerInfo(sheet.rows,expected);
         if(info) detected.push({title,headerRow:info.index+1,dataRows:Math.max(0,sheet.rows.length-info.index-1)});
       }else if(connection.module==="techieWeeklyActivity"){
-        const weekRows=sheet.rows.filter(r=>/^WEEK\s+[1-5]$/i.test(text(r[0]))).length;
-        const headerIndex=sheet.rows.findIndex((r,i)=>i<20&&r.filter(v=>text(v)).length>=2&&r.some(v=>norm(v)==="TOTAL"));
-        if(weekRows&&headerIndex>=0) detected.push({title,headerRow:headerIndex+1,dataRows:weekRows});
+        const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>/^WEEK\s+[1-5]$/i.test(text(x.r[0])));
+        const firstWeekIndex=weekRows.length?weekRows[0].i:-1;
+        let headerIndex=-1;
+        let bestHeaderCells=0;
+        for(let i=0;i<Math.max(0,firstWeekIndex);i++){
+          const nonEmpty=sheet.rows[i].filter(v=>text(v)).length;
+          if(nonEmpty>=2&&nonEmpty>bestHeaderCells){bestHeaderCells=nonEmpty;headerIndex=i;}
+        }
+        if(weekRows.length&&headerIndex>=0) detected.push({title,headerRow:headerIndex+1,dataRows:weekRows.length});
       }
     }
       results.push({module:connection.module,spreadsheetId:connection.spreadsheet_id,tabs,detected,error:null});
