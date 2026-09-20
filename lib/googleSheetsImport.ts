@@ -21,6 +21,19 @@ const expectedHeaders: Record<string, string[]> = {
 
 function text(value: unknown){return value == null ? "" : String(value).trim();}
 function norm(value: unknown){return text(value).replace(/\s+/g," ").toUpperCase();}
+function normHeader(value: unknown){
+  return norm(value)
+    .replace(/&/g," AND ")
+    .replace(/[\\/().,:;_-]+/g," ")
+    .replace(/\s+/g," ")
+    .trim()
+    .replace(/NUMBER OF JOBS/g,"NUMBER OF JOB")
+    .replace(/NUMBERS OF JOB/g,"NUMBER OF JOB")
+    .replace(/VEHICLE DETAILS/g,"VEH DETAILS")
+    .replace(/CUSTOMER CLIENT NAME/g,"CUSTOMER CLIENT NAME")
+    .replace(/CUSTOMER CLIENT/g,"CUSTOMER CLIENT")
+    .replace(/INSTALLER NAME/g,"INSTALLER NAME");
+}
 function numeric(value: unknown){
   const cleaned = text(value).replace(/[₦$£€,\s]/g,"");
   if(!cleaned) return 0;
@@ -77,13 +90,14 @@ async function readSheet(client:sheets_v4.Sheets,spreadsheetId:string,title:stri
 }
 function headerInfo(rows:Row[],expected:string[]){
   let best={index:-1,score:0};
-  const wanted=new Set(expected.map(norm));
-  for(let i=0;i<Math.min(rows.length,15);i++){
-    const found=new Set(rows[i].map(norm).filter(Boolean));
+  const wanted=new Set(expected.map(normHeader));
+  const limit=Math.min(rows.length,80);
+  for(let i=0;i<limit;i++){
+    const found=new Set(rows[i].map(normHeader).filter(Boolean));
     let score=0; wanted.forEach(h=>{if(found.has(h)) score++;});
     if(score>best.score) best={index:i,score};
   }
-  const threshold=Math.max(3,Math.ceil(expected.length*0.5));
+  const threshold=Math.max(3,Math.ceil(expected.length*0.4));
   return best.score>=threshold?best:null;
 }
 function rowMap(headers:Row,row:Row){
@@ -267,7 +281,7 @@ async function importWeekly(supabase:any,client:sheets_v4.Sheets,spreadsheetId:s
     const sheet=await readSheet(client,spreadsheetId,title);
     const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>/^WEEK\s+[1-5]$/i.test(text(x.r[0])));
     if(!weekRows.length) continue;
-    const headerIndex=sheet.rows.findIndex((r,i)=>i<8 && r.some(v=>norm(v)==="BENJAMIN") && r.some(v=>norm(v)==="TOTAL"));
+    const headerIndex=sheet.rows.findIndex((r,i)=>i<20 && r.filter(v=>text(v)).length>=2 && r.some(v=>norm(v)==="TOTAL"));
     if(headerIndex<0) continue;
     summary.sheets++;
     const month=parseMonthTitle(sheet.rows[0]?.join(" ")||title);
@@ -311,7 +325,7 @@ export async function previewLegacyGoogleSheets(userId:string){
         if(info) detected.push({title,headerRow:info.index+1,dataRows:Math.max(0,sheet.rows.length-info.index-1)});
       }else if(connection.module==="techieWeeklyActivity"){
         const weekRows=sheet.rows.filter(r=>/^WEEK\s+[1-5]$/i.test(text(r[0]))).length;
-        const headerIndex=sheet.rows.findIndex((r,i)=>i<8&&r.some(v=>norm(v)==="BENJAMIN")&&r.some(v=>norm(v)==="TOTAL"));
+        const headerIndex=sheet.rows.findIndex((r,i)=>i<20&&r.filter(v=>text(v)).length>=2&&r.some(v=>norm(v)==="TOTAL"));
         if(weekRows&&headerIndex>=0) detected.push({title,headerRow:headerIndex+1,dataRows:weekRows});
       }
     }
