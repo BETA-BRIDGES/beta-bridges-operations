@@ -104,10 +104,12 @@ async function upsertClient(supabase:any,item:{name:string;code?:string;contact?
   if(error) throw error;
   return String(data.id);
 }
-async function clientLookup(supabase:any){
+async function clientLookup(supabase:any):Promise<Map<string,string>>{
   const {data,error}=await supabase.from("clients").select("id,name");
   if(error) throw error;
-  return new Map((data??[]).map((x:any)=>[norm(x.name),String(x.id)]));
+  const map=new Map<string,string>();
+  for(const x of data??[]){ if(x.name) map.set(norm(x.name),String(x.id)); }
+  return map;
 }
 async function ensureClient(supabase:any,map:Map<string,string>,name:string){
   const key=norm(name); if(!key) return null;
