@@ -104,7 +104,11 @@ export default function Home(){
     setGoogleBusy(true);setGoogleMessage("");
     try{
       const data=await googleRequest("/api/google/import/preview","GET");
-      const lines=(data.results??[]).map((r:any)=>`${r.module}: ${r.detected?.map((d:any)=>`${d.title} (${d.dataRows} rows)`).join(", ")||"no matching tabs"}`);
+      const lines=(data.results??[]).map((r:any)=>{
+        if(r.error) return `${r.module}: error — ${r.error}`;
+        if(r.detected?.length) return `${r.module}: ${r.detected.map((d:any)=>`${d.title} (${d.dataRows} rows)`).join(", ")}`;
+        return `${r.module}: no matching tabs (found: ${r.tabs?.join(", ")||"none"})`;
+      });
       setGoogleMessage(`Import preview: ${lines.join(" • ")}`);
     }catch(error){setGoogleMessage(error instanceof Error?error.message:"Unable to preview legacy Google Sheets.");}finally{setGoogleBusy(false)}
   }
