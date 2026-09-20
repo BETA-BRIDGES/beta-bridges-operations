@@ -1,6 +1,7 @@
 -- Initial legacy Google Sheets import support.
 alter table public.clients add column if not exists legacy_source_key text;
 alter table public.jobs add column if not exists legacy_source_key text;
+alter table public.jobs add column if not exists tss_officer_name text;
 alter table public.job_completions add column if not exists legacy_source_key text;
 alter table public.stock_transactions add column if not exists legacy_source_key text;
 alter table public.miscellaneous_charges add column if not exists legacy_source_key text;
