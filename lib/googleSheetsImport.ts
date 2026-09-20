@@ -132,7 +132,7 @@ async function importClientData(supabase:any,client:sheets_v4.Sheets,spreadsheet
       if(!name){summary.skipped++;continue;}
       try{
         await upsertClient(supabase,{
-          name,code:raw["S/N"],contact:raw["CONTACT PERSON"],category:raw["CUSTOMER CATEGORY"],
+          name,contact:raw["CONTACT PERSON"],category:raw["CUSTOMER CATEGORY"],
           phone:raw["PHONE NUMBER"],email:raw["EMAIL ADDRESS"],location:raw["LOCATION"]
         });
         summary.imported++;
