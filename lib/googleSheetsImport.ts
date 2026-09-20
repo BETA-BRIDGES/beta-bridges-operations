@@ -80,7 +80,7 @@ function headerInfo(rows:Row[],expected:string[]){
   const wanted=new Set(expected.map(norm));
   for(let i=0;i<Math.min(rows.length,15);i++){
     const found=new Set(rows[i].map(norm).filter(Boolean));
-    let score=0; for(const h of wanted) if(found.has(h)) score++;
+    let score=0; wanted.forEach(h=>{if(found.has(h)) score++;});
     if(score>best.score) best={index:i,score};
   }
   const threshold=Math.max(3,Math.ceil(expected.length*0.5));
