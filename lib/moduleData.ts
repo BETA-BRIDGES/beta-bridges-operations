@@ -59,14 +59,14 @@ export async function loadCharges():Promise<ChargeRecord[]>{
 
 export async function loadWeekly():Promise<WeeklyRecord[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("technician_weekly_activity").select("id,technician_id,week_start,projects_completed,vehicles_completed,remarks,updated_at").order("week_start",{ascending:false});
+  const {data,error}=await supabase.from("technician_weekly_activity").select("id,technician_id,technician_name,week_start,projects_completed,vehicles_completed,remarks,updated_at").order("week_start",{ascending:false});
   if(error) throw error;
   const ids=Array.from(new Set((data??[]).map(x=>x.technician_id).filter(Boolean)));
   const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:WeeklyProfileLookup[];error:null}));
   if(profileError) throw profileError;
   const profileRows=(profiles??[]) as WeeklyProfileLookup[];
   const map=new Map<string,string>(profileRows.map(p=>[p.id,String(p.full_name??"User")]));
-  return (data??[]).map(x=>({id:x.id,technician:map.get(x.technician_id ?? "")||"—",technicianId:x.technician_id,week:new Date(`${x.week_start}T00:00:00`).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),weekStart:x.week_start,projects:Number(x.projects_completed),vehiclesCompleted:Number(x.vehicles_completed),date:new Date(x.updated_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),remarks:x.remarks??""}));
+  return (data??[]).map(x=>({id:x.id,technician:map.get(x.technician_id ?? "")||x.technician_name||"—",technicianId:x.technician_id,week:new Date(`${x.week_start}T00:00:00`).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),weekStart:x.week_start,projects:Number(x.projects_completed),vehiclesCompleted:Number(x.vehicles_completed),date:new Date(x.updated_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),remarks:x.remarks??""}));
 }
 
 export async function loadNotifications(userId:string):Promise<NotificationRecord[]>{
