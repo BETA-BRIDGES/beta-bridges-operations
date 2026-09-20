@@ -67,14 +67,12 @@ function parseMonthTitle(title:string){
 }
 
 async function listSheets(client:sheets_v4.Sheets,spreadsheetId:string){
-  const {data,error}=await client.spreadsheets.get({spreadsheetId,fields:"sheets(properties(title,hidden,index))"});
-  if(error) throw error;
+  const {data}=await client.spreadsheets.get({spreadsheetId,fields:"sheets(properties(title,hidden,index))"});
   return (data.sheets??[]).map(s=>s.properties).filter(Boolean).filter(s=>!s?.hidden).map(s=>String(s!.title));
 }
 async function readSheet(client:sheets_v4.Sheets,spreadsheetId:string,title:string){
   const range=`'${title.replace(/'/g,"''")}'`;
-  const {data,error}=await client.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:"FORMATTED_VALUE"});
-  if(error) throw error;
+  const {data}=await client.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:"FORMATTED_VALUE"});
   return {title,rows:(data.values??[]) as Row[]};
 }
 function headerInfo(rows:Row[],expected:string[]){
