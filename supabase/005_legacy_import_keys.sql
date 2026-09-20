@@ -7,6 +7,7 @@ alter table public.stock_transactions add column if not exists legacy_source_key
 alter table public.miscellaneous_charges add column if not exists legacy_source_key text;
 alter table public.technician_weekly_activity add column if not exists technician_name text;
 alter table public.technician_weekly_activity add column if not exists legacy_source_key text;
+alter table public.technician_weekly_activity alter column technician_id drop not null;
 
 create unique index if not exists clients_legacy_source_key_uidx
   on public.clients(legacy_source_key);
