@@ -293,6 +293,32 @@ async function importWeekly(supabase:any,client:sheets_v4.Sheets,spreadsheetId:s
   return summary;
 }
 
+export async function previewLegacyGoogleSheets(userId:string){
+  const {supabase,client}=await getGoogleClientForUser(userId);
+  const sheets=google.sheets({version:"v4",auth:client});
+  const {data:connections,error}=await supabase.from("google_connections").select("module,spreadsheet_id,sheet_name,active").eq("active",true).eq("sync_direction","platform_to_sheet");
+  if(error) throw error;
+  const results:any[]=[];
+  for(const connection of (connections??[]) as any[]){
+    const tabs=await listSheets(sheets,connection.spreadsheet_id);
+    const detected:any[]=[];
+    for(const title of tabs){
+      const sheet=await readSheet(sheets,connection.spreadsheet_id,title);
+      const expected=expectedHeaders[connection.module];
+      if(expected){
+        const info=headerInfo(sheet.rows,expected);
+        if(info) detected.push({title,headerRow:info.index+1,dataRows:Math.max(0,sheet.rows.length-info.index-1)});
+      }else if(connection.module==="techieWeeklyActivity"){
+        const weekRows=sheet.rows.filter(r=>/^WEEK\s+[1-5]$/i.test(text(r[0]))).length;
+        const headerIndex=sheet.rows.findIndex((r,i)=>i<8&&r.some(v=>norm(v)==="BENJAMIN")&&r.some(v=>norm(v)==="TOTAL"));
+        if(weekRows&&headerIndex>=0) detected.push({title,headerRow:headerIndex+1,dataRows:weekRows});
+      }
+    }
+    results.push({module:connection.module,spreadsheetId:connection.spreadsheet_id,tabs,detected});
+  }
+  return results;
+}
+
 export async function importLegacyGoogleSheets(userId:string){
   const {supabase,client}=await getGoogleClientForUser(userId);
   const sheets=google.sheets({version:"v4",auth:client});
