@@ -8,14 +8,14 @@ alter table public.technician_weekly_activity add column if not exists technicia
 alter table public.technician_weekly_activity add column if not exists legacy_source_key text;
 
 create unique index if not exists clients_legacy_source_key_uidx
-  on public.clients(legacy_source_key) where legacy_source_key is not null;
+  on public.clients(legacy_source_key);
 create unique index if not exists jobs_legacy_source_key_uidx
-  on public.jobs(legacy_source_key) where legacy_source_key is not null;
+  on public.jobs(legacy_source_key);
 create unique index if not exists job_completions_legacy_source_key_uidx
-  on public.job_completions(legacy_source_key) where legacy_source_key is not null;
+  on public.job_completions(legacy_source_key);
 create unique index if not exists stock_transactions_legacy_source_key_uidx
-  on public.stock_transactions(legacy_source_key) where legacy_source_key is not null;
+  on public.stock_transactions(legacy_source_key);
 create unique index if not exists miscellaneous_charges_legacy_source_key_uidx
-  on public.miscellaneous_charges(legacy_source_key) where legacy_source_key is not null;
+  on public.miscellaneous_charges(legacy_source_key);
 create unique index if not exists technician_weekly_activity_legacy_source_key_uidx
-  on public.technician_weekly_activity(legacy_source_key) where legacy_source_key is not null;
+  on public.technician_weekly_activity(legacy_source_key);
