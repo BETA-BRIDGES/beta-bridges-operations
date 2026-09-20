@@ -185,7 +185,8 @@ export async function syncGoogleSheets(userId:string){
           await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
           results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};
           continue;
-                let totalRows=0;
+        }
+        let totalRows=0;
         for(const dateKey of dataDates){
           const tab=dateTabs.find(x=>x.date===dateKey);
           if(!tab) continue;
