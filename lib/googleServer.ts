@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { google } from "googleapis";
 
-const OAUTH_SCOPES=["https://www.googleapis.com/auth/spreadsheets"];
+const OAUTH_SCOPES=["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive.readonly"];
 
 function env(name:string){const value=process.env[name];if(!value) throw new Error(`Missing required environment variable: ${name}`);return value;}
 
