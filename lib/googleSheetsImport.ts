@@ -218,7 +218,7 @@ async function upsertChunks(
   return imported;
 }
 async function ensureClientsBatch(supabase:any,names:string[],existing:Map<string,string>){
-  const missing=[...new Set(names.map(norm).filter(Boolean))].filter(k=>!existing.has(k));
+  const missing=Array.from(new Set(names.map(norm).filter(Boolean))).filter(k=>!existing.has(k));
   if(!missing.length) return existing;
   const byNorm=new Map<string,string>();
   for(const name of names){const k=norm(name);if(k&&!byNorm.has(k))byNorm.set(k,name);}
