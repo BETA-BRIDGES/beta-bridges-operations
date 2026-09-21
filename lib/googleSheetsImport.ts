@@ -206,7 +206,7 @@ async function ensureClient(supabase:any,map:Map<string,string>,name:string){
 }
 
 async function upsertChunks(
-  supabase:any, table:string, rows:any[], onConflict:string, errors:string[], label:string, chunkSize=250
+  supabase:any, table:string, rows:any[], onConflict:string, errors:string[], label:string, chunkSize=500
 ){
   let imported=0;
   for(let start=0;start<rows.length;start+=chunkSize){
@@ -331,6 +331,28 @@ export async function previewLegacyGoogleSheets(userId:string){
     }
   }
   return results;
+}
+
+export async function importLegacyGoogleModule(userId:string,module:string){
+  const {supabase}=await getGoogleClientForUser(userId);
+  const {data:connection,error}=await supabase.from("google_connections")
+    .select("module,spreadsheet_id,active,sync_direction")
+    .eq("module",module).eq("active",true).eq("sync_direction","platform_to_sheet").maybeSingle();
+  if(error) throw error;
+  if(!connection?.spreadsheet_id) throw new Error("No active Google connection configured for "+module+".");
+  const client=(await getGoogleClientForUser(userId)).client;
+  const drive=google.drive({version:"v3",auth:client});
+  let summary:ImportSummary;
+  if(module==="clientData") summary=await importClientData(supabase,drive,connection.spreadsheet_id);
+  else if(module==="dailyJobListing") summary=await importJobs(supabase,drive,connection.spreadsheet_id);
+  else if(module==="dailyJobDone") summary=await importCompletions(supabase,drive,connection.spreadsheet_id);
+  else if(module==="usedStock") summary=await importStock(supabase,drive,connection.spreadsheet_id);
+  else if(module==="miscellaneousCharges") summary=await importCharges(supabase,drive,connection.spreadsheet_id);
+  else if(module==="techieWeeklyActivity") summary=await importWeekly(supabase,drive,connection.spreadsheet_id);
+  else throw new Error("Unsupported legacy import module: "+module+".");
+  const errorText=summary.errors.length?summary.errors.slice(0,10).join(" | "):null;
+  await supabase.from("google_connections").update({last_error:errorText,updated_at:new Date().toISOString()}).eq("module",module);
+  return summary;
 }
 
 export async function importLegacyGoogleSheets(userId:string){
