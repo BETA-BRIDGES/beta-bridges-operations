@@ -116,13 +116,32 @@ export default function Home(){
   async function importGoogle(){
     if(!window.confirm("Import the existing six Google Sheets into the Beta Bridges portal? This will add/update portal records and will not modify the Google Sheets.")) return;
     setGoogleBusy(true);setGoogleMessage("");
+    const modules=["clientData","dailyJobListing","dailyJobDone","usedStock","miscellaneousCharges","techieWeeklyActivity"];
+    const labels:Record<string,string>={clientData:"Client Data",dailyJobListing:"Daily Job Listing",dailyJobDone:"Daily Job Done",usedStock:"Used Stock",miscellaneousCharges:"Miscellaneous Charges",techieWeeklyActivity:"Techie Weekly Activity"};
+    const results:any[]=[];
     try{
-      const data=await googleRequest("/api/google/import","POST");
-      const lines=(data.results??[]).map((r:any)=>`${r.module}: ${r.imported} imported, ${r.skipped} skipped${r.errors?.length?`, ${r.errors.length} errors`:""}`);
-      setGoogleMessage(`Legacy import completed. ${lines.join(" • ")}`);
+      for(const moduleName of modules){
+        setGoogleMessage("Importing "+labels[moduleName]+"…");
+        const {data:{session}}=await supabase!.auth.getSession();
+        if(!session) throw new Error("Authentication required.");
+        const response=await fetch("/api/google/import",{
+          method:"POST",
+          headers:{authorization:`Bearer ${session.access_token}`,"content-type":"application/json"},
+          body:JSON.stringify({module:moduleName})
+        });
+        const body=await response.json().catch(()=>({}));
+        if(!response.ok) throw new Error(body.error||`Legacy import failed for ${labels[moduleName]}.`);
+        const result=body.results?.[0];
+        results.push(result);
+        if(result?.errors?.length) setGoogleMessage(labels[moduleName]+": imported "+result.imported+", skipped "+result.skipped+", with "+result.errors.length+" errors.");
+      }
+      const lines=results.map(r=>`${r.module}: ${r.imported} imported, ${r.skipped} skipped${r.errors?.length?", "+r.errors.length+" errors":""}`);
+      setGoogleMessage("Legacy import completed. "+lines.join(" • "));
       await refresh();
       await loadGoogleStatus();
-    }catch(error){setGoogleMessage(error instanceof Error?error.message:"Legacy Google Sheets import failed.");}finally{setGoogleBusy(false)}
+    }catch(error){
+      setGoogleMessage(error instanceof Error?error.message:"Legacy Google Sheets import failed.");
+    }finally{setGoogleBusy(false)}
   }
 
   async function syncGoogle(){
