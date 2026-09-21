@@ -1,4 +1,5 @@
-import { google, sheets_v4 } from "googleapis";
+import { google, drive_v3 } from "googleapis";
+import * as XLSX from "xlsx";
 import { getGoogleClientForUser } from "./googleServer";
 
 type Row = string[];
@@ -79,56 +80,28 @@ function parseMonthTitle(title:string){
   return idx>=0 ? {year:Number(m[2]),month:idx+1} : null;
 }
 
-async function listSheets(client:sheets_v4.Sheets,spreadsheetId:string){
-  const {data}=await client.spreadsheets.get({spreadsheetId,fields:"sheets(properties(title,hidden,index))"});
-  return (data.sheets??[]).map(s=>s.properties).filter(Boolean).filter(s=>!s?.hidden).map(s=>String(s!.title));
-}
-async function readSheet(client:sheets_v4.Sheets,spreadsheetId:string,title:string){
-  const range=`'${title.replace(/'/g,"''")}'`;
-  const {data}=await client.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:"FORMATTED_VALUE"});
-  return {title,rows:(data.values??[]) as Row[]};
-}
-
-async function loadWorkbook(client:sheets_v4.Sheets,spreadsheetId:string){
-  const titles=await listSheets(client,spreadsheetId);
-  if(!titles.length) return [] as {title:string;rows:Row[]}[];
-  const ranges=titles.map(title=>`'${title.replace(/'/g,"''")}'`);
-  const {data}=await client.spreadsheets.values.batchGet({
-    spreadsheetId,
-    ranges,
-    valueRenderOption:"FORMATTED_VALUE"
-  });
-  return titles.map((title,index)=>({
+async function loadDriveWorkbook(client:drive_v3.Drive,spreadsheetId:string){
+  const xlsxMime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  let response;
+  try{
+    response=await client.files.export(
+      {fileId:spreadsheetId,mimeType:xlsxMime},
+      {responseType:"arraybuffer"}
+    );
+  }catch{
+    response=await client.files.get(
+      {fileId:spreadsheetId,alt:"media"},
+      {responseType:"arraybuffer"}
+    );
+  }
+  const buffer=Buffer.from(response.data as ArrayBuffer);
+  const workbook=XLSX.read(buffer,{type:"buffer",cellDates:false});
+  return workbook.SheetNames.map(title=>({
     title,
-    rows:((data.valueRanges??[])[index]?.values??[]) as Row[]
+    rows:(XLSX.utils.sheet_to_json(workbook.Sheets[title],{header:1,defval:"",raw:false}) as unknown[][]).map(row=>row.map(text))
   }));
 }
 
-async function previewWorkbook(client:sheets_v4.Sheets,spreadsheetId:string){
-  const meta=await client.spreadsheets.get({
-    spreadsheetId,
-    fields:"sheets(properties(title,hidden,index))"
-  });
-  const titles=(meta.data.sheets??[])
-    .map(s=>s.properties)
-    .filter(Boolean)
-    .filter(s=>!s?.hidden)
-    .map(s=>String(s!.title));
-  if(!titles.length) return [] as {title:string;rows:Row[]}[];
-  const ranges=titles.map(title=>`'${title.replace(/'/g,"''")}'!A1:Z80`);
-  const dataResult=await client.spreadsheets.get({
-    spreadsheetId,
-    ranges,
-    includeGridData:true,
-    fields:"sheets(properties(title),data(startRow,startColumn,rowData(values(formattedValue))))"
-  });
-  return titles.map((title,index)=>{
-    const sheet=dataResult.data.sheets?.[index];
-    const rowData=sheet?.data?.[0]?.rowData??[];
-    const rows=rowData.map((row:any)=>((row.values??[]).map((v:any)=>text(v.formattedValue))));
-    return {title,rows};
-  });
-}
 function headerInfo(rows:Row[],expected:string[]){
   let best={index:-1,score:0};
   const wanted=new Set(expected.map(normHeader));
@@ -186,9 +159,9 @@ async function ensureClient(supabase:any,map:Map<string,string>,name:string){
   return id;
 }
 
-async function importClientData(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
+async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.clientData); if(!info) continue;
     summary.sheets++;
@@ -209,13 +182,13 @@ async function importClientData(supabase:any,client:sheets_v4.Sheets,spreadsheet
   return summary;
 }
 
-async function importJobs(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
+async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"dailyJobListing",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
   const clients=await clientLookup(supabase);
   const {data:profiles,error:pe}=await supabase.from("profiles").select("id,full_name");
   if(pe) throw pe;
   const profileMap=new Map((profiles??[]).map((x:any)=>[norm(x.full_name),String(x.id)]));
-  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing); if(!info) continue;
     summary.sheets++;
@@ -243,9 +216,9 @@ async function importJobs(supabase:any,client:sheets_v4.Sheets,spreadsheetId:str
   return summary;
 }
 
-async function importCompletions(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
+async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone); if(!info) continue;
     summary.sheets++;
@@ -270,9 +243,9 @@ async function importCompletions(supabase:any,client:sheets_v4.Sheets,spreadshee
   return summary;
 }
 
-async function importStock(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
+async function importStock(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"usedStock",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.usedStock); if(!info) continue;
     summary.sheets++;
@@ -299,10 +272,10 @@ async function importStock(supabase:any,client:sheets_v4.Sheets,spreadsheetId:st
   return summary;
 }
 
-async function importCharges(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
+async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"miscellaneousCharges",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
   const clients=await clientLookup(supabase);
-  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const title=sheet.title;
     const info=headerInfo(sheet.rows,expectedHeaders.miscellaneousCharges); if(!info) continue;
     summary.sheets++;
@@ -328,9 +301,9 @@ async function importCharges(supabase:any,client:sheets_v4.Sheets,spreadsheetId:
   return summary;
 }
 
-async function importWeekly(supabase:any,client:sheets_v4.Sheets,spreadsheetId:string):Promise<ImportSummary>{
+async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const sheet of await loadWorkbook(client,spreadsheetId)){
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const title=sheet.title;
     const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>/^WEEK\s+[1-5]$/i.test(text(x.r[0])));
     if(!weekRows.length) continue;
@@ -368,7 +341,7 @@ async function importWeekly(supabase:any,client:sheets_v4.Sheets,spreadsheetId:s
 
 export async function previewLegacyGoogleSheets(userId:string){
   const {supabase,client}=await getGoogleClientForUser(userId);
-  const sheets=google.sheets({version:"v4",auth:client});
+  const drive=google.drive({version:"v3",auth:client});
   const {data:connections,error}=await supabase.from("google_connections").select("module,spreadsheet_id,sheet_name,active").eq("active",true).eq("sync_direction","platform_to_sheet");
   if(error) throw error;
   const results:any[]=[];
