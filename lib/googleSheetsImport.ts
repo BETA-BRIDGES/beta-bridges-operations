@@ -205,179 +205,83 @@ async function ensureClient(supabase:any,map:Map<string,string>,name:string){
   return id;
 }
 
-async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
-    const title=sheet.title;
-    const info=clientHeaderInfo(sheet.rows); if(!info) continue;
-    summary.sheets++;
-    for(let i=info.index+1;i<sheet.rows.length;i++){
-      summary.rows++;
-      const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);
-      const name=raw["CUSTOMER/CLIENT NAME"];
-      if(!name){summary.skipped++;continue;}
-      try{
-        await upsertClient(supabase,{
-          name,contact:raw["CONTACT PERSON"],category:raw["CUSTOMER CATEGORY"],
-          phone:raw["PHONE NUMBER"],email:raw["EMAIL ADDRESS"],location:raw["LOCATION"]
-        });
-        summary.imported++;
-      }catch(error){summary.errors.push(`Row ${i+1}: ${error instanceof Error?error.message:"Import failed"}`);}
-    }
+async function upsertChunks(
+  supabase:any, table:string, rows:any[], onConflict:string, errors:string[], label:string, chunkSize=250
+){
+  let imported=0;
+  for(let start=0;start<rows.length;start+=chunkSize){
+    const chunk=rows.slice(start,start+chunkSize);
+    const {error}=await supabase.from(table).upsert(chunk,{onConflict});
+    if(error) errors.push(label+" batch "+(start+1)+"-"+(start+chunk.length)+": "+error.message);
+    else imported+=chunk.length;
   }
-  return summary;
+  return imported;
+}
+async function ensureClientsBatch(supabase:any,names:string[],existing:Map<string,string>){
+  const missing=[...new Set(names.map(norm).filter(Boolean))].filter(k=>!existing.has(k));
+  if(!missing.length) return existing;
+  const byNorm=new Map<string,string>();
+  for(const name of names){const k=norm(name);if(k&&!byNorm.has(k))byNorm.set(k,name);}
+  const payload=missing.map(key=>({legacy_source_key:legacyClientKey(key),name:byNorm.get(key)||key}));
+  const localErrors:string[]=[];
+  await upsertChunks(supabase,"clients",payload,"legacy_source_key",localErrors,"Client creation");
+  const {data,error}=await supabase.from("clients").select("id,name");
+  if(error) throw error;
+  for(const x of data??[]){if(x.name) existing.set(norm(x.name),String(x.id));}
+  if(localErrors.length) throw new Error(localErrors.join(" | "));
+  return existing;
+}
+
+async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
+  const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=clientHeaderInfo(sheet.rows);if(!info)continue;summary.sheets++;
+    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER/CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CLIENT NAME"];if(!name){summary.skipped++;continue;}
+      payloads.push({legacy_source_key:legacyClientKey(name),client_code:null,name,contact_person:raw["CONTACT PERSON"]||null,category:raw["CUSTOMER CATEGORY"]||raw["CATEGORY"]||null,phone:raw["PHONE NUMBER"]||raw["PHONE"]||null,email:raw["EMAIL ADDRESS"]||raw["EMAIL"]||null,location:raw["LOCATION"]||raw["ADDRESS"]||null});
+    }}
+  summary.imported=await upsertChunks(supabase,"clients",payloads,"legacy_source_key",summary.errors,"Client import"); return summary;
 }
 
 async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"dailyJobListing",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  const clients=await clientLookup(supabase);
-  const {data:profiles,error:pe}=await supabase.from("profiles").select("id,full_name");
-  if(pe) throw pe;
-  const profileMap=new Map((profiles??[]).map((x:any)=>[norm(x.full_name),String(x.id)]));
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
-    const title=sheet.title;
-    const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing); if(!info) continue;
-    summary.sheets++;
-    const tabDate=parseDate(title);
-    for(let i=info.index+1;i<sheet.rows.length;i++){
-      summary.rows++;
-      const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);
-      const name=raw["CLIENT NAMES"]; if(!name){summary.skipped++;continue;}
-      try{
-        const clientId=await ensureClient(supabase,clients,name);
-        const source=sourceKey("dailyJobListing",title,i+1);
-        const officerName=raw["TSS OFFICER"];
-        const payload={
-          legacy_source_key:source,job_id:`BB-LEGACY-${slug(title)||"TAB"}-${i+1}`,client_id:clientId,
-          job_type:raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(raw["NUMBERS OF JOB"])||1)),
-          vehicle_make:raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(raw["DATE"],tabDate),scheduled_time:parseTime(raw["TIME"]),
-          location:raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null
-        };
-        const {error}=await supabase.from("jobs").upsert(payload,{onConflict:"legacy_source_key"});
-        if(error) throw error;
-        summary.imported++;
-      }catch(error){summary.errors.push(`Row ${i+1}: ${error instanceof Error?error.message:"Import failed"}`);}
-    }
-  }
-  return summary;
+  const summary:ImportSummary={module:"dailyJobListing",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const workbook=await loadDriveWorkbook(client,spreadsheetId); const clients=await clientLookup(supabase);
+  const rawRows:{title:string;rowNumber:number;raw:Record<string,string>;fallbackDate:string|null}[]=[];
+  const {data:profiles,error:pe}=await supabase.from("profiles").select("id,full_name"); if(pe)throw pe; const profileMap=new Map((profiles??[]).map((x:any)=>[norm(x.full_name),String(x.id)]));
+  for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing);if(!info)continue;summary.sheets++;const tabDate=parseDate(sheet.title);
+    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["CLIENT NAMES"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw,fallbackDate:tabDate});}}
+  await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CLIENT NAMES"]),clients);
+  const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber),job_id:"BB-LEGACY-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
+  summary.imported=await upsertChunks(supabase,"jobs",payloads,"legacy_source_key",summary.errors,"Job import");return summary;
 }
 
 async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
-    const title=sheet.title;
-    const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone); if(!info) continue;
-    summary.sheets++;
-    const tabDate=parseDate(title);
-    for(let i=info.index+1;i<sheet.rows.length;i++){
-      summary.rows++;
-      const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);
-      if(!raw["DEVICE ID"]&&!raw["NAME"]){summary.skipped++;continue;}
-      try{
-        const payload={
-          legacy_source_key:sourceKey("dailyJobDone",title,i+1),device_id:raw["DEVICE ID"]||null,
-          completion_date:parseDate(raw["DATE"],tabDate),installer:raw["INSTALLER NAME"]||null,location:raw["LOCATION"]||null,
-          client:raw["NAME"]||null,vehicle_details:raw["VEH DETAILS"]||null,vehicle_make:raw["VEH MAKE"]||null,
-          status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null
-        };
-        const {error}=await supabase.from("job_completions").upsert(payload,{onConflict:"legacy_source_key"});
-        if(error) throw error;
-        summary.imported++;
-      }catch(error){summary.errors.push(`Row ${i+1}: ${error instanceof Error?error.message:"Import failed"}`);}
-    }
-  }
-  return summary;
+  const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);if(!info)continue;summary.sheets++;const tabDate=parseDate(sheet.title);
+    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["DEVICE ID"]&&!raw["NAME"]){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("dailyJobDone",sheet.title,i+1),device_id:raw["DEVICE ID"]||null,completion_date:parseDate(raw["DATE"],tabDate),installer:raw["INSTALLER NAME"]||null,location:raw["LOCATION"]||null,client:raw["NAME"]||null,vehicle_details:raw["VEH DETAILS"]||raw["VEHICLE DETAILS"]||null,vehicle_make:raw["VEH MAKE"]||null,status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null});}}
+  summary.imported=await upsertChunks(supabase,"job_completions",payloads,"legacy_source_key",summary.errors,"Daily Job Done import");return summary;
 }
 
 async function importStock(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"usedStock",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
-    const title=sheet.title;
-    const info=headerInfo(sheet.rows,expectedHeaders.usedStock); if(!info) continue;
-    summary.sheets++;
-    for(let i=info.index+1;i<sheet.rows.length;i++){
-      summary.rows++;
-      const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);
-      if(!raw["DEVICE ID"]&&!raw["SIM ID"]){summary.skipped++;continue;}
-      try{
-        const payload={
-          legacy_source_key:sourceKey("usedStock",title,i+1),network:raw["NETWORK"]||null,device_type:raw["DEVICE TYPES"]||null,
-          device_status:raw["DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS"]||null,device_id:raw["DEVICE ID"]||null,
-          sim_id:raw["SIM ID"]||null,date_collected:parseDate(raw["DATE COLLECTED"]),operations_remark:raw["OPS REMARK - RECEIVED OR NOT RECEIVED"]||null,
-          operations_correction:raw["OPS CORRECTIONS - DEVICE & SIM"]||null,date_issued:parseDate(raw["DATE/MONTH ISSUED TO TECHNICIAN"]),
-          date_installed:parseDate(raw["DATE INSTALLED"]),installer:raw["INSTALLER NAME"]||null,location:raw["LOCATION"]||null,
-          client:raw["CLIENT NAME"]||null,vehicle_details:raw["VEHICLE DETAILS"]||null,vehicle_make:raw["VEHICLE MAKE"]||null,
-          other_issues:raw["OTHER ISSUES"]||null
-        };
-        const {error}=await supabase.from("stock_transactions").upsert(payload,{onConflict:"legacy_source_key"});
-        if(error) throw error;
-        summary.imported++;
-      }catch(error){summary.errors.push(`Row ${i+1}: ${error instanceof Error?error.message:"Import failed"}`);}
-    }
-  }
-  return summary;
+  const summary:ImportSummary={module:"usedStock",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.usedStock);if(!info)continue;summary.sheets++;
+    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["DEVICE ID"]&&!raw["SIM ID"]){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("usedStock",sheet.title,i+1),network:raw["NETWORK"]||null,device_type:raw["DEVICE TYPES"]||null,device_status:raw["DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS"]||null,device_id:raw["DEVICE ID"]||null,sim_id:raw["SIM ID"]||null,date_collected:parseDate(raw["DATE COLLECTED"]),operations_remark:raw["OPS REMARK - RECEIVED OR NOT RECEIVED"]||null,operations_correction:raw["OPS CORRECTIONS - DEVICE & SIM"]||null,date_issued:parseDate(raw["DATE/MONTH ISSUED TO TECHNICIAN"]),date_installed:parseDate(raw["DATE INSTALLED"]),installer:raw["INSTALLER NAME"]||null,location:raw["LOCATION"]||null,client:raw["CLIENT NAME"]||null,vehicle_details:raw["VEHICLE DETAILS"]||raw["VEH DETAILS"]||null,vehicle_make:raw["VEHICLE MAKE"]||null,other_issues:raw["OTHER ISSUES"]||null});}}
+  summary.imported=await upsertChunks(supabase,"stock_transactions",payloads,"legacy_source_key",summary.errors,"Used Stock import");return summary;
 }
 
 async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"miscellaneousCharges",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  const clients=await clientLookup(supabase);
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
-    const title=sheet.title;
-    const info=headerInfo(sheet.rows,expectedHeaders.miscellaneousCharges); if(!info) continue;
-    summary.sheets++;
-    for(let i=info.index+1;i<sheet.rows.length;i++){
-      summary.rows++;
-      const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);
-      const name=raw["CUSTOMER/ CLIENT NAME"]; if(!name&&!raw["LOCATION"]){summary.skipped++;continue;}
-      try{
-        const clientId=await ensureClient(supabase,clients,name);
-        const payload={
-          legacy_source_key:sourceKey("miscellaneousCharges",title,i+1),charge_id:`BB-LEGACY-CHG-${slug(title)||"TAB"}-${i+1}`,
-          client_id:clientId,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),
-          swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),
-          health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),
-          paid_or_approved:raw["PAID OR APPROVED"]||"Pending"
-        };
-        const {error}=await supabase.from("miscellaneous_charges").upsert(payload,{onConflict:"legacy_source_key"});
-        if(error) throw error;
-        summary.imported++;
-      }catch(error){summary.errors.push(`Row ${i+1}: ${error instanceof Error?error.message:"Import failed"}`);}
-    }
-  }
-  return summary;
+  const summary:ImportSummary={module:"miscellaneousCharges",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const clients=await clientLookup(supabase); const rawRows:{title:string;rowNumber:number;raw:Record<string,string>}[]=[];
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.miscellaneousCharges);if(!info)continue;summary.sheets++;
+    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];if(!name&&!raw["LOCATION"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw});}}
+  await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CUSTOMER/ CLIENT NAME"]||x.raw["CUSTOMER/CLIENT NAME"]||x.raw["CLIENT NAME"]),clients);
+  const payloads=rawRows.map(x=>{const raw=x.raw;const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];return{legacy_source_key:sourceKey("miscellaneousCharges",x.title,x.rowNumber),charge_id:"BB-LEGACY-CHG-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(name))||null,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),paid_or_approved:raw["PAID OR APPROVED"]||"Pending"};});
+  summary.imported=await upsertChunks(supabase,"miscellaneous_charges",payloads,"legacy_source_key",summary.errors,"Miscellaneous Charges import");return summary;
 }
 
 async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
-    const title=sheet.title;
-    const weekRows=findWeeklyRows(sheet.rows);
-    if(!weekRows.length) continue;
-    const firstWeekIndex=weekRows[0].i;
-    const headerIndex=findWeeklyHeaderIndex(sheet.rows,firstWeekIndex);
-    if(headerIndex<0) continue;
-    summary.sheets++;
-    const month=parseMonthTitle(sheet.rows[0]?.join(" ")||title);
-    for(const item of weekRows){
-      const weekNo=Number(text(item.r[0]).replace(/\D/g,""))||1;
-      const date=month?new Date(Date.UTC(month.year,month.month-1,(weekNo-1)*7+1)).toISOString().slice(0,10):parseDate(title);
-      for(let col=1;col<sheet.rows[headerIndex].length;col++){
-        const technician=text(sheet.rows[headerIndex][col]); if(!technician||norm(technician)==="TOTAL") continue;
-        summary.rows++;
-        const value=text(item.r[col]); if(!value){summary.skipped++;continue;}
-        try{
-          const payload={
-            legacy_source_key:sourceKey("techieWeeklyActivity",title,(item.i+1)*1000+col),technician_name:technician,
-            week_start:date,projects_completed:Math.max(0,Math.trunc(numeric(value))),vehicles_completed:0
-          };
-          const {error}=await supabase.from("technician_weekly_activity").upsert(payload,{onConflict:"legacy_source_key"});
-          if(error) throw error;
-          summary.imported++;
-        }catch(error){summary.errors.push(`Row ${item.i+1}, col ${col+1}: ${error instanceof Error?error.message:"Import failed"}`);}
-      }
+  const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const weekRows=findWeeklyRows(sheet.rows);if(!weekRows.length)continue;const headerIndex=findWeeklyHeaderIndex(sheet.rows,weekRows[0].i);if(headerIndex<0)continue;summary.sheets++;const month=parseMonthTitle(sheet.rows[0]?.join(" ")||sheet.title);
+    for(const item of weekRows){const weekCell=item.r.find(cell=>isWeekLabel(cell));const weekNo=Number(text(weekCell).replace(/\D/g,""))||1;const date=month?new Date(Date.UTC(month.year,month.month-1,(weekNo-1)*7+1)).toISOString().slice(0,10):parseDate(sheet.title);
+      for(let col=1;col<sheet.rows[headerIndex].length;col++){const technician=text(sheet.rows[headerIndex][col]);if(!technician||norm(technician)==="TOTAL")continue;summary.rows++;const value=text(item.r[col]);if(!value){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("techieWeeklyActivity",sheet.title,(item.i+1)*1000+col),technician_name:technician,week_start:date,projects_completed:Math.max(0,Math.trunc(numeric(value))),vehicles_completed:0});}}
     }
-  }
-  return summary;
+  summary.imported=await upsertChunks(supabase,"technician_weekly_activity",payloads,"legacy_source_key",summary.errors,"Weekly Activity import");return summary;
 }
 
 export async function previewLegacyGoogleSheets(userId:string){
