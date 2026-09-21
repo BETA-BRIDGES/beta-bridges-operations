@@ -324,7 +324,7 @@ async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:str
   const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const title=sheet.title;
-    const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>/^WEEK\s+[1-5]$/i.test(text(x.r[0])));
+    const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>isWeekLabel(x.r[0]));
     if(!weekRows.length) continue;
     const firstWeekIndex=weekRows[0].i;
     let headerIndex=-1;
@@ -376,7 +376,7 @@ export async function previewLegacyGoogleSheets(userId:string){
           const info=headerInfo(sheet.rows,expected);
           if(info) detected.push({title,headerRow:info.index+1,dataRows:Math.max(0,sheet.rows.length-info.index-1)});
         }else if(connection.module==="techieWeeklyActivity"){
-          const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>/^WEEK\s+[1-5]$/i.test(text(x.r[0])));
+          const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>isWeekLabel(x.r[0]));
           const firstWeekIndex=weekRows.length?weekRows[0].i:-1;
           let headerIndex=-1;
           let bestHeaderCells=0;
