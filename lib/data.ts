@@ -23,15 +23,19 @@ export async function loadJobs():Promise<AppJob[]>{
   const clientIds=Array.from(new Set(rows.map(x=>x.client_id).filter(Boolean)));
   const techIds=Array.from(new Set(rows.map(x=>x.assigned_technician_id).filter(Boolean)));
   const officerIds=Array.from(new Set(rows.map(x=>x.tss_officer_id).filter(Boolean)));
-  const [{data:clients,error:clientError},{data:techs,error:techError},{data:officers,error:officerError}]=await Promise.all([
-    clientIds.length?supabase.from("clients").select("id,name").in("id",clientIds):Promise.resolve({data:[],error:null} as {data:ClientLookup[];error:null}),
+  // PostgREST encodes .in() values into the request URL. Hundreds of UUIDs
+  // can exceed proxy/request URL limits, so load client lookups in small chunks.
+  const clientChunks=Array.from({length:Math.ceil(clientIds.length/100)},(_,i)=>clientIds.slice(i*100,(i+1)*100));
+  const [clientResults,{data:techs,error:techError},{data:officers,error:officerError}]=await Promise.all([
+    Promise.all(clientChunks.map(ids=>supabase.from("clients").select("id,name").in("id",ids))),
     techIds.length?supabase.from("profiles").select("id,full_name").in("id",techIds):Promise.resolve({data:[],error:null} as {data:ProfileLookup[];error:null}),
     officerIds.length?supabase.from("profiles").select("id,full_name").in("id",officerIds):Promise.resolve({data:[],error:null} as {data:ProfileLookup[];error:null})
   ]);
+  const clientError=clientResults.find(result=>result.error)?.error??null;
   if(clientError) throw clientError;
   if(techError) throw techError;
   if(officerError) throw officerError;
-  const clientRows=(clients??[]) as ClientLookup[];
+  const clientRows=clientResults.flatMap(result=>result.data??[]) as ClientLookup[];
   const techRows=(techs??[]) as ProfileLookup[];
   const clientMap=new Map<string,string|null>(clientRows.map((c:ClientLookup)=>[c.id,c.name]));
   const techMap=new Map<string,string|null>(techRows.map((t:ProfileLookup)=>[t.id,t.full_name]));
