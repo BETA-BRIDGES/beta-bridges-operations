@@ -103,6 +103,32 @@ async function loadWorkbook(client:sheets_v4.Sheets,spreadsheetId:string){
     rows:((data.valueRanges??[])[index]?.values??[]) as Row[]
   }));
 }
+
+async function previewWorkbook(client:sheets_v4.Sheets,spreadsheetId:string){
+  const meta=await client.spreadsheets.get({
+    spreadsheetId,
+    fields:"sheets(properties(title,hidden,index))"
+  });
+  const titles=(meta.data.sheets??[])
+    .map(s=>s.properties)
+    .filter(Boolean)
+    .filter(s=>!s?.hidden)
+    .map(s=>String(s!.title));
+  if(!titles.length) return [] as {title:string;rows:Row[]}[];
+  const ranges=titles.map(title=>`'${title.replace(/'/g,"''")}'!A1:Z80`);
+  const dataResult=await client.spreadsheets.get({
+    spreadsheetId,
+    ranges,
+    includeGridData:true,
+    fields:"sheets(properties(title),data(startRow,startColumn,rowData(values(formattedValue))))"
+  });
+  return titles.map((title,index)=>{
+    const sheet=dataResult.data.sheets?.[index];
+    const rowData=sheet?.data?.[0]?.rowData??[];
+    const rows=rowData.map((row:any)=>((row.values??[]).map((v:any)=>text(v.formattedValue))));
+    return {title,rows};
+  });
+}
 function headerInfo(rows:Row[],expected:string[]){
   let best={index:-1,score:0};
   const wanted=new Set(expected.map(normHeader));
