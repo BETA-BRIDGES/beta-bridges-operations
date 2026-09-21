@@ -33,7 +33,19 @@ function normHeader(value: unknown){
     .replace(/VEHICLE DETAILS/g,"VEH DETAILS")
     .replace(/CUSTOMER CLIENT NAME/g,"CUSTOMER CLIENT NAME")
     .replace(/CUSTOMER CLIENT/g,"CUSTOMER CLIENT")
+    .replace(/^CLIENT NAME$/g,"CUSTOMER CLIENT NAME")
+    .replace(/^CUSTOMER NAME$/g,"CUSTOMER CLIENT NAME")
+    .replace(/^NAME$/g,"CUSTOMER CLIENT NAME")
+    .replace(/^EMAIL$/g,"EMAIL ADDRESS")
+    .replace(/^PHONE$/g,"PHONE NUMBER")
+    .replace(/^MOBILE NUMBER$/g,"PHONE NUMBER")
+    .replace(/^MOBILE$/g,"PHONE NUMBER")
+    .replace(/^ADDRESS$/g,"LOCATION")
+    .replace(/^CLIENT LOCATION$/g,"LOCATION")
     .replace(/INSTALLER NAME/g,"INSTALLER NAME");
+}
+function isWeekLabel(value:unknown){
+  return /^WEEK\s*([1-5])(?:\b|[^0-9])/i.test(text(value));
 }
 function numeric(value: unknown){
   const cleaned = text(value).replace(/[₦$£€,\s]/g,"");
@@ -105,13 +117,15 @@ async function loadDriveWorkbook(client:drive_v3.Drive,spreadsheetId:string){
 function headerInfo(rows:Row[],expected:string[]){
   let best={index:-1,score:0};
   const wanted=new Set(expected.map(normHeader));
-  const limit=Math.min(rows.length,80);
+  const limit=Math.min(rows.length,120);
   for(let i=0;i<limit;i++){
     const found=new Set(rows[i].map(normHeader).filter(Boolean));
     let score=0; wanted.forEach(h=>{if(found.has(h)) score++;});
     if(score>best.score) best={index:i,score};
   }
-  const threshold=Math.max(3,Math.ceil(expected.length*0.4));
+  const threshold=expected.includes("CUSTOMER/CLIENT NAME")
+    ? 3
+    : Math.max(3,Math.ceil(expected.length*0.4));
   return best.score>=threshold?best:null;
 }
 function rowMap(headers:Row,row:Row){
@@ -127,6 +141,11 @@ function rowMap(headers:Row,row:Row){
       out["NUMBER OF JOBS"]=value;
     }
     if(canonical==="VEH DETAILS") out["VEHICLE DETAILS"]=value;
+    if(canonical==="CUSTOMER CLIENT NAME"){
+      out["CUSTOMER/CLIENT NAME"]=value;
+      out["CUSTOMER/ CLIENT NAME"]=value;
+      out["CLIENT NAME"]=value;
+    }
     if(canonical==="CUSTOMER CLIENT NAME") out["CUSTOMER/ CLIENT NAME"]=value;
   });
   return out;
