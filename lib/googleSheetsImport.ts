@@ -45,7 +45,20 @@ function normHeader(value: unknown){
     .replace(/INSTALLER NAME/g,"INSTALLER NAME");
 }
 function isWeekLabel(value:unknown){
-  return /^\s*WEEK\D*([1-5])\b/i.test(text(value));
+  const s=text(value).toUpperCase().replace(/\s+/g," ").trim();
+  return /^WEEK\D*([1-5])\b/.test(s)
+    || /^(?:[1-5](?:ST|ND|RD|TH)?\s+)?WEEK\s*([1-5])?\b/.test(s)
+    || /^(?:[1-5](?:ST|ND|RD|TH)?)\s+WEEK\b/.test(s);
+}
+function flexibleHeaderInfo(rows:Row[],aliases:string[],threshold=3){
+  const wanted=new Set(aliases.map(normHeader));
+  let best={index:-1,score:0};
+  for(let i=0;i<Math.min(rows.length,150);i++){
+    const found=new Set(rows[i].map(normHeader).filter(Boolean));
+    let score=0; wanted.forEach(h=>{if(found.has(h)) score++;});
+    if(score>best.score) best={index:i,score};
+  }
+  return best.score>=threshold?best:null;
 }
 function numeric(value: unknown){
   const cleaned = text(value).replace(/[₦$£€,\s]/g,"");
@@ -245,7 +258,9 @@ async function ensureClientsBatch(supabase:any,names:string[],existing:Map<strin
 
 async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=clientHeaderInfo(sheet.rows);if(!info)continue;summary.sheets++;
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=clientHeaderInfo(sheet.rows)
+      || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","CONTACT PERSON","PHONE NUMBER","EMAIL ADDRESS","LOCATION","CUSTOMER CATEGORY"],3);
+    if(!info)continue;summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER/CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CLIENT NAME"];if(!name){summary.skipped++;continue;}
       payloads.push({legacy_source_key:legacyClientKey(name),client_code:null,name,contact_person:raw["CONTACT PERSON"]||null,category:raw["CUSTOMER CATEGORY"]||raw["CATEGORY"]||null,phone:raw["PHONE NUMBER"]||raw["PHONE"]||null,email:raw["EMAIL ADDRESS"]||raw["EMAIL"]||null,location:raw["LOCATION"]||raw["ADDRESS"]||null});
     }}
@@ -279,7 +294,9 @@ async function importStock(supabase:any,client:drive_v3.Drive,spreadsheetId:stri
 
 async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"miscellaneousCharges",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const clients=await clientLookup(supabase); const rawRows:{title:string;rowNumber:number;raw:Record<string,string>}[]=[];
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.miscellaneousCharges);if(!info)continue;summary.sheets++;
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.miscellaneousCharges)
+      || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","LOCATION","LOGISTICS","ACCOMMODATION","SWAP","SIM REPLACEMENT","OTHERS"],3);
+    if(!info)continue;summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];if(!name&&!raw["LOCATION"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CUSTOMER/ CLIENT NAME"]||x.raw["CUSTOMER/CLIENT NAME"]||x.raw["CLIENT NAME"]),clients);
   const payloads=rawRows.map(x=>{const raw=x.raw;const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];return{legacy_source_key:sourceKey("miscellaneousCharges",x.title,x.rowNumber),charge_id:"BB-LEGACY-CHG-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(name))||null,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),paid_or_approved:raw["PAID OR APPROVED"]||"Pending"};});
