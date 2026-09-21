@@ -347,26 +347,27 @@ export async function previewLegacyGoogleSheets(userId:string){
   const results:any[]=[];
   for(const connection of (connections??[]) as any[]){
     try{
-    const tabs=await listSheets(sheets,connection.spreadsheet_id);
-    const detected:any[]=[];
-    for(const title of tabs){
-      const sheet=await readSheet(sheets,connection.spreadsheet_id,title);
-      const expected=expectedHeaders[connection.module];
-      if(expected){
-        const info=headerInfo(sheet.rows,expected);
-        if(info) detected.push({title,headerRow:info.index+1,dataRows:Math.max(0,sheet.rows.length-info.index-1)});
-      }else if(connection.module==="techieWeeklyActivity"){
-        const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>/^WEEK\s+[1-5]$/i.test(text(x.r[0])));
-        const firstWeekIndex=weekRows.length?weekRows[0].i:-1;
-        let headerIndex=-1;
-        let bestHeaderCells=0;
-        for(let i=0;i<Math.max(0,firstWeekIndex);i++){
-          const nonEmpty=sheet.rows[i].filter(v=>text(v)).length;
-          if(nonEmpty>=2&&nonEmpty>bestHeaderCells){bestHeaderCells=nonEmpty;headerIndex=i;}
+      const workbook=await loadDriveWorkbook(drive,connection.spreadsheet_id);
+      const tabs=workbook.map(s=>s.title);
+      const detected:any[]=[];
+      for(const sheet of workbook){
+        const title=sheet.title;
+        const expected=expectedHeaders[connection.module];
+        if(expected){
+          const info=headerInfo(sheet.rows,expected);
+          if(info) detected.push({title,headerRow:info.index+1,dataRows:Math.max(0,sheet.rows.length-info.index-1)});
+        }else if(connection.module==="techieWeeklyActivity"){
+          const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>/^WEEK\s+[1-5]$/i.test(text(x.r[0])));
+          const firstWeekIndex=weekRows.length?weekRows[0].i:-1;
+          let headerIndex=-1;
+          let bestHeaderCells=0;
+          for(let i=0;i<Math.max(0,firstWeekIndex);i++){
+            const nonEmpty=sheet.rows[i].filter(v=>text(v)).length;
+            if(nonEmpty>=2&&nonEmpty>bestHeaderCells){bestHeaderCells=nonEmpty;headerIndex=i;}
+          }
+          if(weekRows.length&&headerIndex>=0) detected.push({title,headerRow:headerIndex+1,dataRows:weekRows.length});
         }
-        if(weekRows.length&&headerIndex>=0) detected.push({title,headerRow:headerIndex+1,dataRows:weekRows.length});
       }
-    }
       results.push({module:connection.module,spreadsheetId:connection.spreadsheet_id,tabs,detected,error:null});
     }catch(error){
       results.push({
@@ -383,7 +384,7 @@ export async function previewLegacyGoogleSheets(userId:string){
 
 export async function importLegacyGoogleSheets(userId:string){
   const {supabase,client}=await getGoogleClientForUser(userId);
-  const sheets=google.sheets({version:"v4",auth:client});
+  const drive=google.drive({version:"v3",auth:client});
   const {data:connections,error}=await supabase.from("google_connections").select("module,spreadsheet_id,sheet_name,active").eq("active",true).eq("sync_direction","platform_to_sheet");
   if(error) throw error;
   const byModule=new Map((connections??[]).map((x:any)=>[x.module,x]));
@@ -393,12 +394,12 @@ export async function importLegacyGoogleSheets(userId:string){
     const connection=byModule.get(module); if(!connection) continue;
     try{
       let summary:ImportSummary;
-      if(module==="clientData") summary=await importClientData(supabase,sheets,connection.spreadsheet_id);
-      else if(module==="dailyJobListing") summary=await importJobs(supabase,sheets,connection.spreadsheet_id);
-      else if(module==="dailyJobDone") summary=await importCompletions(supabase,sheets,connection.spreadsheet_id);
-      else if(module==="usedStock") summary=await importStock(supabase,sheets,connection.spreadsheet_id);
-      else if(module==="miscellaneousCharges") summary=await importCharges(supabase,sheets,connection.spreadsheet_id);
-      else summary=await importWeekly(supabase,sheets,connection.spreadsheet_id);
+      if(module==="clientData") summary=await importClientData(supabase,drive,connection.spreadsheet_id);
+      else if(module==="dailyJobListing") summary=await importJobs(supabase,drive,connection.spreadsheet_id);
+      else if(module==="dailyJobDone") summary=await importCompletions(supabase,drive,connection.spreadsheet_id);
+      else if(module==="usedStock") summary=await importStock(supabase,drive,connection.spreadsheet_id);
+      else if(module==="miscellaneousCharges") summary=await importCharges(supabase,drive,connection.spreadsheet_id);
+      else summary=await importWeekly(supabase,drive,connection.spreadsheet_id);
       results.push(summary);
       const errorText=summary.errors.length?summary.errors.slice(0,10).join(" | "):null;
       await supabase.from("google_connections").update({last_error:errorText,updated_at:new Date().toISOString()}).eq("module",module);
