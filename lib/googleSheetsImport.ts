@@ -45,7 +45,7 @@ function normHeader(value: unknown){
     .replace(/INSTALLER NAME/g,"INSTALLER NAME");
 }
 function isWeekLabel(value:unknown){
-  return /^WEEK\s*([1-5])(?:\b|[^0-9])/i.test(text(value));
+  return /^\s*WEEK\D*([1-5])\b/i.test(text(value));
 }
 function numeric(value: unknown){
   const cleaned = text(value).replace(/[₦$£€,\s]/g,"");
@@ -396,15 +396,23 @@ export async function previewLegacyGoogleSheets(userId:string){
         const expected=expectedHeaders[connection.module];
         if(connection.module==="clientData"){
           const info=clientHeaderInfo(sheet.rows);
-          if(info) detected.push({title,headerRow:info.index+1,dataRows:countDataRows(sheet.rows,info.index)});
+          if(info){
+            detected.push({title,headerRow:info.index+1,dataRows:Math.max(0,sheet.rows.length-info.index-1)});
+          }else if(/^[A-Z]+\s+\d{4}$/i.test(title)){
+            detected.push({title,headerRow:null,dataRows:Math.max(0,sheet.rows.length),needsHeaderReview:true});
+          }
         }else if(expected){
           const info=headerInfo(sheet.rows,expected);
-          if(info) detected.push({title,headerRow:info.index+1,dataRows:countDataRows(sheet.rows,info.index)});
+          if(info) detected.push({title,headerRow:info.index+1,dataRows:Math.max(0,sheet.rows.length-info.index-1)});
         }else if(connection.module==="techieWeeklyActivity"){
           const weekRows=findWeeklyRows(sheet.rows);
           const firstWeekIndex=weekRows.length?weekRows[0].i:-1;
           const headerIndex=findWeeklyHeaderIndex(sheet.rows,firstWeekIndex);
-          if(weekRows.length) detected.push({title,headerRow:headerIndex>=0?headerIndex+1:null,dataRows:weekRows.length});
+          if(weekRows.length){
+            detected.push({title,headerRow:headerIndex>=0?headerIndex+1:null,dataRows:weekRows.length,needsHeaderReview:headerIndex<0});
+          }else if(/^[A-Z]+\s+\d{4}$/i.test(title) && sheet.rows.length){
+            detected.push({title,headerRow:null,dataRows:Math.max(0,sheet.rows.length),needsHeaderReview:true});
+          }
         }
       }
       results.push({module:connection.module,spreadsheetId:connection.spreadsheet_id,tabs,detected,error:null});
