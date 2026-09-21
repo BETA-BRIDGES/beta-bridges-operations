@@ -27,9 +27,9 @@ export async function loadJobs():Promise<AppJob[]>{
   // can exceed proxy/request URL limits, so load client lookups in small chunks.
   const clientChunks=Array.from({length:Math.ceil(clientIds.length/100)},(_,i)=>clientIds.slice(i*100,(i+1)*100));
   const [clientResults,{data:techs,error:techError},{data:officers,error:officerError}]=await Promise.all([
-    Promise.all(clientChunks.map(ids=>supabase.from("clients").select("id,name").in("id",ids))),
-    techIds.length?supabase.from("profiles").select("id,full_name").in("id",techIds):Promise.resolve({data:[],error:null} as {data:ProfileLookup[];error:null}),
-    officerIds.length?supabase.from("profiles").select("id,full_name").in("id",officerIds):Promise.resolve({data:[],error:null} as {data:ProfileLookup[];error:null})
+    Promise.all(clientChunks.map(ids=>supabase!.from("clients").select("id,name").in("id",ids))),
+    techIds.length?supabase!.from("profiles").select("id,full_name").in("id",techIds):Promise.resolve({data:[],error:null} as {data:ProfileLookup[];error:null}),
+    officerIds.length?supabase!.from("profiles").select("id,full_name").in("id",officerIds):Promise.resolve({data:[],error:null} as {data:ProfileLookup[];error:null})
   ]);
   const clientError=clientResults.find(result=>result.error)?.error??null;
   if(clientError) throw clientError;
