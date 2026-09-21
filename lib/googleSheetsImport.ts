@@ -128,6 +128,33 @@ function headerInfo(rows:Row[],expected:string[]){
     : Math.max(3,Math.ceil(expected.length*0.4));
   return best.score>=threshold?best:null;
 }
+function countDataRows(rows:Row[],headerIndex:number){
+  return rows.slice(headerIndex+1).filter(r=>r.some(v=>text(v))).length;
+}
+function findWeeklyRows(rows:Row[]){
+  return rows.map((r,i)=>({r,i})).filter(x=>x.r.some(cell=>isWeekLabel(cell)));
+}
+function findWeeklyHeaderIndex(rows:Row[],firstWeekIndex:number){
+  if(firstWeekIndex<=0) return -1;
+  for(let i=firstWeekIndex-1;i>=0;i--){
+    const cells=rows[i].map(text).filter(Boolean);
+    if(cells.length>=2) return i;
+  }
+  return -1;
+}
+function clientHeaderInfo(rows:Row[]){
+  const primary=new Set(["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME"]);
+  const secondary=new Set(["CONTACT PERSON","CONTACT","PHONE NUMBER","PHONE","MOBILE","MOBILE NUMBER","EMAIL ADDRESS","EMAIL","LOCATION","ADDRESS","CUSTOMER CATEGORY","CATEGORY"]);
+  let best={index:-1,score:0};
+  for(let i=0;i<Math.min(rows.length,120);i++){
+    const cells=rows[i].map(normHeader);
+    const hasPrimary=cells.some(v=>primary.has(v));
+    const secondaryScore=cells.filter(v=>secondary.has(v)).length;
+    const score=(hasPrimary?3:0)+Math.min(secondaryScore,4);
+    if(score>best.score) best={index:i,score};
+  }
+  return best.score>=5?best:null;
+}
 function rowMap(headers:Row,row:Row){
   const out:Record<string,string>={};
   headers.forEach((h,i)=>{
@@ -182,7 +209,7 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
   const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const title=sheet.title;
-    const info=headerInfo(sheet.rows,expectedHeaders.clientData); if(!info) continue;
+    const info=clientHeaderInfo(sheet.rows); if(!info) continue;
     summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){
       summary.rows++;
@@ -324,15 +351,10 @@ async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:str
   const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]};
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const title=sheet.title;
-    const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>isWeekLabel(x.r[0]));
+    const weekRows=findWeeklyRows(sheet.rows);
     if(!weekRows.length) continue;
     const firstWeekIndex=weekRows[0].i;
-    let headerIndex=-1;
-    let bestHeaderCells=0;
-    for(let i=0;i<firstWeekIndex;i++){
-      const nonEmpty=sheet.rows[i].filter(v=>text(v)).length;
-      if(nonEmpty>=2 && nonEmpty>bestHeaderCells){bestHeaderCells=nonEmpty;headerIndex=i;}
-    }
+    const headerIndex=findWeeklyHeaderIndex(sheet.rows,firstWeekIndex);
     if(headerIndex<0) continue;
     summary.sheets++;
     const month=parseMonthTitle(sheet.rows[0]?.join(" ")||title);
@@ -372,19 +394,17 @@ export async function previewLegacyGoogleSheets(userId:string){
       for(const sheet of workbook){
         const title=sheet.title;
         const expected=expectedHeaders[connection.module];
-        if(expected){
+        if(connection.module==="clientData"){
+          const info=clientHeaderInfo(sheet.rows);
+          if(info) detected.push({title,headerRow:info.index+1,dataRows:countDataRows(sheet.rows,info.index)});
+        }else if(expected){
           const info=headerInfo(sheet.rows,expected);
-          if(info) detected.push({title,headerRow:info.index+1,dataRows:Math.max(0,sheet.rows.length-info.index-1)});
+          if(info) detected.push({title,headerRow:info.index+1,dataRows:countDataRows(sheet.rows,info.index)});
         }else if(connection.module==="techieWeeklyActivity"){
-          const weekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>isWeekLabel(x.r[0]));
+          const weekRows=findWeeklyRows(sheet.rows);
           const firstWeekIndex=weekRows.length?weekRows[0].i:-1;
-          let headerIndex=-1;
-          let bestHeaderCells=0;
-          for(let i=0;i<Math.max(0,firstWeekIndex);i++){
-            const nonEmpty=sheet.rows[i].filter(v=>text(v)).length;
-            if(nonEmpty>=2&&nonEmpty>bestHeaderCells){bestHeaderCells=nonEmpty;headerIndex=i;}
-          }
-          if(weekRows.length&&headerIndex>=0) detected.push({title,headerRow:headerIndex+1,dataRows:weekRows.length});
+          const headerIndex=findWeeklyHeaderIndex(sheet.rows,firstWeekIndex);
+          if(weekRows.length) detected.push({title,headerRow:headerIndex>=0?headerIndex+1:null,dataRows:weekRows.length});
         }
       }
       results.push({module:connection.module,spreadsheetId:connection.spreadsheet_id,tabs,detected,error:null});
