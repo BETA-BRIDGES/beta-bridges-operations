@@ -208,9 +208,20 @@ async function ensureClient(supabase:any,map:Map<string,string>,name:string){
 async function upsertChunks(
   supabase:any, table:string, rows:any[], onConflict:string, errors:string[], label:string, chunkSize=500
 ){
+  // PostgreSQL rejects an upsert batch when the same conflict key appears
+  // more than once in that single statement. Legacy workbooks repeat clients
+  // across monthly tabs, so collapse duplicate conflict keys before batching.
+  const unique=new Map<string,any>();
+  const passthrough:any[]=[];
+  for(const row of rows){
+    const key=row?.[onConflict];
+    if(key==null || String(key)==="") passthrough.push(row);
+    else unique.set(String(key),row);
+  }
+  const deduped=passthrough.concat(Array.from(unique.values()));
   let imported=0;
-  for(let start=0;start<rows.length;start+=chunkSize){
-    const chunk=rows.slice(start,start+chunkSize);
+  for(let start=0;start<deduped.length;start+=chunkSize){
+    const chunk=deduped.slice(start,start+chunkSize);
     const {error}=await supabase.from(table).upsert(chunk,{onConflict});
     if(error) errors.push(label+" batch "+(start+1)+"-"+(start+chunk.length)+": "+error.message);
     else imported+=chunk.length;
