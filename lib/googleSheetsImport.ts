@@ -430,38 +430,47 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
       else positionalLayout=clientDataPositionalLayout(sheet.rows);
     }
 
-    if(!info && !positionalLayout) continue;
-    summary.sheets++;
-
+    let parsedByHeader=false;
     if(info){
       const headers=sheet.rows[info.index];
       const nameCol=findClientNameColumn(headers);
-      if(nameCol<0) continue;
-      const contactCol=findHeaderColumn(headers,["CONTACT PERSON","CONTACT"]);
-      const categoryCol=findHeaderColumn(headers,["CUSTOMER CATEGORY","CATEGORY"]);
-      const phoneCol=findHeaderColumn(headers,["PHONE NUMBER","PHONE","MOBILE NUMBER","MOBILE"]);
-      const emailCol=findHeaderColumn(headers,["EMAIL ADDRESS","EMAIL"]);
-      const locationCol=findHeaderColumn(headers,["LOCATION","ADDRESS"]);
+      // A false-positive header match should not prevent the positional
+      // fallback from being attempted.
+      if(nameCol>=0){
+        parsedByHeader=true;
+        const contactCol=findHeaderColumn(headers,["CONTACT PERSON","CONTACT"]);
+        const categoryCol=findHeaderColumn(headers,["CUSTOMER CATEGORY","CATEGORY"]);
+        const phoneCol=findHeaderColumn(headers,["PHONE NUMBER","PHONE","MOBILE NUMBER","MOBILE"]);
+        const emailCol=findHeaderColumn(headers,["EMAIL ADDRESS","EMAIL"]);
+        const locationCol=findHeaderColumn(headers,["LOCATION","ADDRESS"]);
 
-      for(let i=info.index+1;i<sheet.rows.length;i++){
-        summary.rows++;
-        const row=sheet.rows[i];
-        const name=text(row[nameCol]);
-        if(!name){summary.skipped++;continue;}
-        payloads.push({
-          legacy_source_key:legacyClientKey(name),
-          client_code:null,
-          name,
-          contact_person:contactCol>=0?text(row[contactCol])||null:null,
-          category:categoryCol>=0?text(row[categoryCol])||null:null,
-          phone:phoneCol>=0?text(row[phoneCol])||null:null,
-          email:emailCol>=0?text(row[emailCol])||null:null,
-          location:locationCol>=0?text(row[locationCol])||null:null
-        });
+        summary.sheets++;
+        for(let i=info.index+1;i<sheet.rows.length;i++){
+          summary.rows++;
+          const row=sheet.rows[i];
+          const name=text(row[nameCol]);
+          if(!name){summary.skipped++;continue;}
+          payloads.push({
+            legacy_source_key:legacyClientKey(name),
+            client_code:null,
+            name,
+            contact_person:contactCol>=0?text(row[contactCol])||null:null,
+            category:categoryCol>=0?text(row[categoryCol])||null:null,
+            phone:phoneCol>=0?text(row[phoneCol])||null:null,
+            email:emailCol>=0?text(row[emailCol])||null:null,
+            location:locationCol>=0?text(row[locationCol])||null:null
+          });
+        }
       }
-    }else{
-      const {startIndex,serialCol,nameCol}=positionalLayout!;
+    }
+
+    if(!parsedByHeader){
+      positionalLayout=positionalLayout || clientDataPositionalLayout(sheet.rows);
+    }
+    if(!parsedByHeader && positionalLayout){
+      const {startIndex,serialCol,nameCol}=positionalLayout;
       const offset=nameCol+1;
+      summary.sheets++;
       for(let i=startIndex;i<sheet.rows.length;i++){
         summary.rows++;
         const row=sheet.rows[i];
