@@ -158,15 +158,27 @@ function findWeeklyHeaderIndex(rows:Row[],firstWeekIndex:number){
 function clientHeaderInfo(rows:Row[]){
   const primary=new Set(["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME"]);
   const secondary=new Set(["CONTACT PERSON","CONTACT","PHONE NUMBER","PHONE","MOBILE","MOBILE NUMBER","EMAIL ADDRESS","EMAIL","LOCATION","ADDRESS","CUSTOMER CATEGORY","CATEGORY"]);
+  const serial=new Set(["S N","SERIAL NUMBER","S N"]);
   let best={index:-1,score:0};
-  for(let i=0;i<rows.length;i++){
+  const limit=Math.min(rows.length,120);
+  for(let i=0;i<limit;i++){
     const cells=rows[i].map(normHeader);
     const hasPrimary=cells.some(v=>primary.has(v));
     const secondaryScore=cells.filter(v=>secondary.has(v)).length;
-    const score=(hasPrimary?3:0)+Math.min(secondaryScore,4);
+    const hasSerial=cells.some(v=>serial.has(v));
+    // Prefer a true table header: a client-name column plus at least one
+    // companion field, or a serial-number column plus several companions.
+    const score=(hasPrimary?6:0)+Math.min(secondaryScore,4)+(hasSerial?1:0);
     if(score>best.score) best={index:i,score};
   }
-  return best.score>=3?best:null;
+  return best.score>=6?best:null;
+}
+function findHeaderColumn(headers:Row,aliases:string[]){
+  const wanted=new Set(aliases.map(normHeader));
+  for(let i=0;i<headers.length;i++){
+    if(wanted.has(normHeader(headers[i]))) return i;
+  }
+  return -1;
 }
 function findChargeHeaderInfo(rows:Row[]){
   let best={index:-1,score:0};
@@ -208,22 +220,31 @@ function fallbackHeaderRow(rows:Row[],kind:"client"|"charge"){
 }
 
 function findWeeklyHeaderInfo(rows:Row[],firstWeekIndex:number){
-  const technicianNames=new Set(["BENJAMIN","GOKE","MICHAEL","SAMSON","SUNDAY","SYLVESTER","MALIK","JOSEPH","ISAAC","PATRICK","EMMANUEL","SHAMSUDEEN","JEREMIAH","MUTIU","AHMED","SEUN","AINA","FAVOUR"]);
-  for(let i=0;i<Math.min(rows.length,30);i++){
-    const cells=rows[i].map(v=>norm(v));
-    const hits=cells.filter(v=>technicianNames.has(v)).length;
-    const hasTotal=cells.includes("TOTAL");
-    if(hits>=2 || (hits>=1 && hasTotal)) return i;
+  const limit=Math.min(rows.length,40);
+  let best={index:-1,score:0};
+  for(let i=0;i<limit;i++){
+    const cells=rows[i].map(norm);
+    const nonEmpty=cells.filter(Boolean).length;
+    const total=cells.includes("TOTAL");
+    const nextRows=rows.slice(i+1,Math.min(rows.length,i+7));
+    const weekCount=nextRows.filter(r=>r.some(cell=>isWeekLabel(cell))).length;
+    const score=(total?6:0)+Math.min(nonEmpty,10)+weekCount*4;
+    if(total && weekCount>0 && score>best.score) best={index:i,score};
   }
+  if(best.index>=0) return best.index;
   if(firstWeekIndex>0) return firstWeekIndex-1;
+  // Last-resort: a row with several technician-like column labels followed by data rows.
+  for(let i=0;i<limit;i++){
+    const nonEmpty=rows[i].map(text).filter(Boolean);
+    if(nonEmpty.length>=3 && i+1<rows.length) return i;
+  }
   return -1;
 }
 function detectWeeklyRows(rows:Row[],headerIndex:number){
-  const found=rows.map((r,i)=>({r,i})).filter(x=>isWeekLabel(x.r[0]) || x.r.some(cell=>isWeekLabel(cell)));
-  if(found.length) return found;
+  const found=rows.map((r,i)=>({r,i})).filter(x=>x.r.some(cell=>isWeekLabel(cell)));
+  if(found.length) return found.slice(0,5);
   if(headerIndex>=0){
-    return rows.slice(headerIndex+1,headerIndex+6).map((r,i)=>({r,i:i+headerIndex+1}))
-      .filter(x=>x.r.some(cell=>/\bWEEK\b/i.test(text(cell))));
+    return rows.slice(headerIndex+1,headerIndex+6).map((r,i)=>({r,i:i+headerIndex+1}));
   }
   return [];
 }
@@ -321,12 +342,38 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
     const detected=clientHeaderInfo(sheet.rows)
       || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","CONTACT PERSON","PHONE NUMBER","EMAIL ADDRESS","LOCATION","CUSTOMER CATEGORY"],2);
     const fallback=(/^[A-Z]+\s+\d{4}$/i.test(sheet.title)||/CLIENT/i.test(sheet.title))?fallbackHeaderRow(sheet.rows,"client"):-1;
-    const info=detected|| (fallback>=0?{index:fallback,score:0}:null);
-    if(!info)continue;summary.sheets++;
-    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CLIENT NAME"]||raw["NAME"];if(!name){summary.skipped++;continue;}
-      payloads.push({legacy_source_key:legacyClientKey(name),client_code:null,name,contact_person:raw["CONTACT PERSON"]||null,category:raw["CUSTOMER CATEGORY"]||raw["CATEGORY"]||null,phone:raw["PHONE NUMBER"]||raw["PHONE"]||null,email:raw["EMAIL ADDRESS"]||raw["EMAIL"]||null,location:raw["LOCATION"]||raw["ADDRESS"]||null});
-    }}
-  summary.imported=await upsertChunks(supabase,"clients",payloads,"legacy_source_key",summary.errors,"Client import"); return summary;
+    const info=detected || (fallback>=0?{index:fallback,score:0}:null);
+    if(!info) continue;
+
+    const headers=sheet.rows[info.index];
+    const nameCol=findHeaderColumn(headers,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME"]);
+    if(nameCol<0) continue;
+    const contactCol=findHeaderColumn(headers,["CONTACT PERSON","CONTACT"]);
+    const categoryCol=findHeaderColumn(headers,["CUSTOMER CATEGORY","CATEGORY"]);
+    const phoneCol=findHeaderColumn(headers,["PHONE NUMBER","PHONE","MOBILE NUMBER","MOBILE"]);
+    const emailCol=findHeaderColumn(headers,["EMAIL ADDRESS","EMAIL"]);
+    const locationCol=findHeaderColumn(headers,["LOCATION","ADDRESS"]);
+
+    summary.sheets++;
+    for(let i=info.index+1;i<sheet.rows.length;i++){
+      summary.rows++;
+      const row=sheet.rows[i];
+      const name=text(row[nameCol]);
+      if(!name){summary.skipped++;continue;}
+      payloads.push({
+        legacy_source_key:legacyClientKey(name),
+        client_code:null,
+        name,
+        contact_person:contactCol>=0?text(row[contactCol])||null:null,
+        category:categoryCol>=0?text(row[categoryCol])||null:null,
+        phone:phoneCol>=0?text(row[phoneCol])||null:null,
+        email:emailCol>=0?text(row[emailCol])||null:null,
+        location:locationCol>=0?text(row[locationCol])||null:null
+      });
+    }
+  }
+  summary.imported=await upsertChunks(supabase,"clients",payloads,"legacy_source_key",summary.errors,"Client import");
+  return summary;
 }
 
 async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
@@ -372,14 +419,40 @@ async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:st
 async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
-    const headerCandidate=findWeeklyHeaderInfo(sheet.rows,findWeeklyRows(sheet.rows)[0]?.i??-1);
-    const effectiveWeekRows=detectWeeklyRows(sheet.rows,headerCandidate);
-    if(!effectiveWeekRows.length || headerCandidate<0)continue;
-    const headerIndex=headerCandidate;summary.sheets++;const month=parseMonthTitle(sheet.rows[0]?.join(" ")||sheet.title);
-    for(const item of effectiveWeekRows){const weekCell=item.r.find(cell=>isWeekLabel(cell)||/^\s*WEEK\s*[1-5]/i.test(text(cell)));const weekNo=Number(text(weekCell).replace(/\D/g,""))||1;const date=month?new Date(Date.UTC(month.year,month.month-1,(weekNo-1)*7+1)).toISOString().slice(0,10):parseDate(sheet.title);
-      for(let col=1;col<sheet.rows[headerIndex].length;col++){const technician=text(sheet.rows[headerIndex][col]);if(!technician||norm(technician)==="TOTAL")continue;summary.rows++;const value=text(item.r[col]);if(!value){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("techieWeeklyActivity",sheet.title,(item.i+1)*1000+col),technician_name:technician,week_start:date,projects_completed:Math.max(0,Math.trunc(numeric(value))),vehicles_completed:0});}}
+    const weekRows=findWeeklyRows(sheet.rows);
+    const headerCandidate=findWeeklyHeaderInfo(sheet.rows,weekRows[0]?.i??-1);
+    const effectiveWeekRows=weekRows.length?weekRows:detectWeeklyRows(sheet.rows,headerCandidate);
+    if(!effectiveWeekRows.length || headerCandidate<0) continue;
+
+    const headers=sheet.rows[headerCandidate];
+    const month=parseMonthTitle(sheet.rows[0]?.join(" ")||sheet.title);
+    summary.sheets++;
+
+    for(const item of effectiveWeekRows){
+      const weekCell=item.r.find(cell=>isWeekLabel(cell));
+      const weekNo=Math.max(1,Math.min(5,Number(text(weekCell).replace(/\D/g,""))||((item.i-headerCandidate))));
+      const date=month
+        ? new Date(Date.UTC(month.year,month.month-1,(weekNo-1)*7+1)).toISOString().slice(0,10)
+        : parseDate(sheet.title);
+
+      for(let col=1;col<headers.length;col++){
+        const technician=text(headers[col]);
+        if(!technician||norm(technician)==="TOTAL") continue;
+        summary.rows++;
+        const value=text(item.r[col]);
+        if(!value){summary.skipped++;continue;}
+        payloads.push({
+          legacy_source_key:sourceKey("techieWeeklyActivity",sheet.title,(item.i+1)*1000+col),
+          technician_name:technician,
+          week_start:date,
+          projects_completed:Math.max(0,Math.trunc(numeric(value))),
+          vehicles_completed:0
+        });
+      }
     }
-  summary.imported=await upsertChunks(supabase,"technician_weekly_activity",payloads,"legacy_source_key",summary.errors,"Weekly Activity import");return summary;
+  }
+  summary.imported=await upsertChunks(supabase,"technician_weekly_activity",payloads,"legacy_source_key",summary.errors,"Weekly Activity import");
+  return summary;
 }
 
 export async function previewLegacyGoogleSheets(userId:string){
