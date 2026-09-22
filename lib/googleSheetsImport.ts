@@ -202,6 +202,36 @@ function findClientNameColumn(headers:Row[]){
   });
   return best.score>=5?best.index:-1;
 }
+function locateClientHeader(rows:Row[]){
+  const headerTokens=[
+    "S N","SERIAL NUMBER",
+    "CUSTOMER CLIENT NAME","CUSTOMER CLIENT NAMES",
+    "CUSTOMER NAME","CUSTOMER NAMES",
+    "CLIENT NAME","CLIENT NAMES","NAME",
+    "CONTACT PERSON","CONTACT",
+    "CUSTOMER CATEGORY","CATEGORY",
+    "PHONE NUMBER","PHONE","MOBILE NUMBER","MOBILE",
+    "EMAIL ADDRESS","EMAIL",
+    "LOCATION","ADDRESS"
+  ];
+  const tokenSet=new Set(headerTokens.map(normHeader));
+  let best={index:-1,score:0};
+  const limit=Math.min(rows.length,300);
+  for(let i=0;i<limit;i++){
+    const cells=rows[i].map(normHeader);
+    const nonEmpty=cells.filter(Boolean);
+    if(nonEmpty.length<2) continue;
+    let score=0;
+    for(const cell of nonEmpty){
+      if(tokenSet.has(cell)) score+=2;
+      else if(/CLIENT|CUSTOMER|NAME|CONTACT|CATEGORY|PHONE|MOBILE|EMAIL|LOCATION|ADDRESS|SERIAL/.test(cell)) score+=1;
+    }
+    const nameCol=findClientNameColumn(rows[i]);
+    if(nameCol>=0) score+=5;
+    if(score>best.score) best={index:i,score};
+  }
+  return best.score>=5?best:null;
+}
 function findChargeHeaderInfo(rows:Row[]){
   let best={index:-1,score:0};
   for(let i=0;i<rows.length;i++){
@@ -362,6 +392,7 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
   const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const detected=clientHeaderInfo(sheet.rows)
+      || locateClientHeader(sheet.rows)
       || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","CONTACT PERSON","PHONE NUMBER","EMAIL ADDRESS","LOCATION","CUSTOMER CATEGORY"],2);
     const fallback=(/^[A-Z]+\s+\d{4}$/i.test(sheet.title)||/CLIENT/i.test(sheet.title))?fallbackHeaderRow(sheet.rows,"client"):-1;
     const info=detected || (fallback>=0?{index:fallback,score:0}:null);
@@ -393,6 +424,9 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
         location:locationCol>=0?text(row[locationCol])||null:null
       });
     }
+  }
+  if(!payloads.length){
+    summary.errors.push("No client header/data rows were detected in the connected workbook.");
   }
   summary.imported=await upsertChunks(supabase,"clients",payloads,"legacy_source_key",summary.errors,"Client import");
   return summary;
