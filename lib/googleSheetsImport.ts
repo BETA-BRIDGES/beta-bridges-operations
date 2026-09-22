@@ -414,6 +414,42 @@ function clientDataPositionalLayout(rows:Row[]){
 function clientDataSheetDate(title:string){
   return /^[A-Z]+\s+\d{4}$/i.test(title);
 }
+function looksLikeClientName(value:unknown){
+  const s=text(value);
+  if(!s || clientDataLooksLikeSerial(s)) return false;
+  if(/^(S\/?N|SERIAL(?: NUMBER)?|CUSTOMER(?:\/|\s+\/\s+)?CLIENT(?:\s+NAME)?|CUSTOMER CLIENT NAME|CLIENT NAME|CONTACT PERSON|CUSTOMER CATEGORY|PHONE NUMBER|EMAIL ADDRESS|LOCATION)$/i.test(s)) return false;
+  return /[A-Za-z]/.test(s) && s.length>=2;
+}
+function parseClientDataRow(row:Row){
+  const maxCols=Math.min(row.length,8);
+  // Prefer the second/third columns used by the legacy Client Data layout.
+  const candidateCols=[1,2,0,3];
+  let best:{nameCol:number;score:number}|null=null;
+  for(const nameCol of candidateCols){
+    if(nameCol>=maxCols) continue;
+    const name=text(row[nameCol]);
+    if(!looksLikeClientName(name)) continue;
+
+    let score=5;
+    const nearby=row.slice(nameCol+1,Math.min(row.length,nameCol+6)).map(text);
+    if(nearby.some(v=>/\S+@\S+\.\S+/.test(v))) score+=2;
+    if(nearby.some(v=>/\d{7,}/.test(v))) score+=2;
+    if(nearby.some(v=>/LAGOS|ABUJA|IBADAN|IBADAN|PORT HARCOURT|BENIN|KANO|PH|OWERRI|ENUGU/i.test(v))) score+=1;
+    if(clientDataLooksLikeSerial(row[nameCol-1])) score+=2;
+    if(score>(best?.score??-1)) best={nameCol,score};
+  }
+  if(!best) return null;
+
+  const nameCol=best.nameCol;
+  return {
+    name:text(row[nameCol]),
+    contact:text(row[nameCol+1])||null,
+    category:text(row[nameCol+2])||null,
+    phone:text(row[nameCol+3])||null,
+    email:text(row[nameCol+4])||null,
+    location:text(row[nameCol+5])||null
+  };
+}
 
 async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
@@ -467,30 +503,34 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
     if(!parsedByHeader){
       positionalLayout=positionalLayout || clientDataPositionalLayout(sheet.rows);
     }
-    if(!parsedByHeader && positionalLayout){
-      const {startIndex,serialCol,nameCol}=positionalLayout;
-      const offset=nameCol+1;
-      summary.sheets++;
-      for(let i=startIndex;i<sheet.rows.length;i++){
-        summary.rows++;
-        const row=sheet.rows[i];
-        const serial=text(row[serialCol]);
-        const name=text(row[nameCol]);
-        if(!name || !clientDataLooksLikeSerial(serial) || /CUSTOMER|CLIENT|NAME/i.test(name)){
+    if(!parsedByHeader){
+      const fallbackStart=positionalLayout?.startIndex??0;
+      let importedFromRows=0;
+
+      // Parse each row independently instead of assuming every legacy tab has
+      // identical leading/index columns. This handles sheets where S/N or an
+      // extra index column appears inconsistently.
+      for(let i=fallbackStart;i<sheet.rows.length;i++){
+        const parsed=parseClientDataRow(sheet.rows[i]);
+        if(!parsed){
+          summary.rows++;
           summary.skipped++;
           continue;
         }
+        summary.rows++;
+        importedFromRows++;
         payloads.push({
-          legacy_source_key:legacyClientKey(name),
+          legacy_source_key:legacyClientKey(parsed.name),
           client_code:null,
-          name,
-          contact_person:text(row[offset])||null,
-          category:text(row[offset+1])||null,
-          phone:text(row[offset+2])||null,
-          email:text(row[offset+3])||null,
-          location:text(row[offset+4])||null
+          name:parsed.name,
+          contact_person:parsed.contact,
+          category:parsed.category,
+          phone:parsed.phone,
+          email:parsed.email,
+          location:parsed.location
         });
       }
+      if(importedFromRows>0) summary.sheets++;
     }
   }
   if(!payloads.length){
