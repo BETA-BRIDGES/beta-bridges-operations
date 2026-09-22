@@ -180,7 +180,7 @@ function findHeaderColumn(headers:Row,aliases:string[]){
   }
   return -1;
 }
-function findClientNameColumn(headers:Row[]){
+function findClientNameColumn(headers:Row){
   const exact=findHeaderColumn(headers,[
     "CUSTOMER CLIENT NAME","CUSTOMER CLIENT NAMES",
     "CUSTOMER NAME","CUSTOMER NAMES",
