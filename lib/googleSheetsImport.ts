@@ -46,9 +46,9 @@ function normHeader(value: unknown){
 }
 function isWeekLabel(value:unknown){
   const s=text(value).toUpperCase().replace(/\s+/g," ").trim();
-  return /^WEEK\D*([1-5])\b/.test(s)
-    || /^(?:[1-5](?:ST|ND|RD|TH)?\s+)?WEEK\s*([1-5])?\b/.test(s)
-    || /^(?:[1-5](?:ST|ND|RD|TH)?)\s+WEEK\b/.test(s);
+  return /\bWEEK\s*[-:#.]?\s*[1-5]\b/.test(s)
+    || /^WEEK\D*[1-5]\b/.test(s)
+    || /^[1-5](?:ST|ND|RD|TH)?\s+WEEK\b/.test(s);
 }
 function flexibleHeaderInfo(rows:Row[],aliases:string[],threshold=3){
   const wanted=new Set(aliases.map(normHeader));
@@ -159,14 +159,44 @@ function clientHeaderInfo(rows:Row[]){
   const primary=new Set(["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME"]);
   const secondary=new Set(["CONTACT PERSON","CONTACT","PHONE NUMBER","PHONE","MOBILE","MOBILE NUMBER","EMAIL ADDRESS","EMAIL","LOCATION","ADDRESS","CUSTOMER CATEGORY","CATEGORY"]);
   let best={index:-1,score:0};
-  for(let i=0;i<Math.min(rows.length,120);i++){
+  for(let i=0;i<rows.length;i++){
     const cells=rows[i].map(normHeader);
     const hasPrimary=cells.some(v=>primary.has(v));
     const secondaryScore=cells.filter(v=>secondary.has(v)).length;
     const score=(hasPrimary?3:0)+Math.min(secondaryScore,4);
     if(score>best.score) best={index:i,score};
   }
-  return best.score>=5?best:null;
+  return best.score>=3?best:null;
+}
+function findChargeHeaderInfo(rows:Row[]){
+  let best={index:-1,score:0};
+  for(let i=0;i<rows.length;i++){
+    const cells=rows[i].map(normHeader);
+    const checks=[
+      ["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME"],
+      ["LOCATION"],
+      ["LOGISTICS"],
+      ["ACCOMMODATION"],
+      ["SWAP"],
+      ["SIM REPLACEMENT"],
+      ["OTHERS"]
+    ];
+    let score=0;
+    for(const aliases of checks){if(cells.some(v=>aliases.includes(v))) score++;}
+    if(score>best.score) best={index:i,score};
+  }
+  return best.score>=3?best:null;
+}
+function findWeeklyHeaderInfo(rows:Row[],firstWeekIndex:number){
+  if(firstWeekIndex<0) return -1;
+  for(let i=firstWeekIndex-1;i>=0;i--){
+    const cells=rows[i].map(text).filter(Boolean);
+    if(cells.length>=2) return i;
+  }
+  // Some exports place technician headings on the same row as another
+  // title/merged-cell structure. Fall back to the first row above the week
+  // labels containing at least one technician-like non-empty cell.
+  return firstWeekIndex>0?firstWeekIndex-1:-1;
 }
 function rowMap(headers:Row,row:Row){
   const out:Record<string,string>={};
@@ -259,7 +289,7 @@ async function ensureClientsBatch(supabase:any,names:string[],existing:Map<strin
 async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=clientHeaderInfo(sheet.rows)
-      || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","CONTACT PERSON","PHONE NUMBER","EMAIL ADDRESS","LOCATION","CUSTOMER CATEGORY"],3);
+      || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","CONTACT PERSON","PHONE NUMBER","EMAIL ADDRESS","LOCATION","CUSTOMER CATEGORY"],2);
     if(!info)continue;summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER/CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CLIENT NAME"];if(!name){summary.skipped++;continue;}
       payloads.push({legacy_source_key:legacyClientKey(name),client_code:null,name,contact_person:raw["CONTACT PERSON"]||null,category:raw["CUSTOMER CATEGORY"]||raw["CATEGORY"]||null,phone:raw["PHONE NUMBER"]||raw["PHONE"]||null,email:raw["EMAIL ADDRESS"]||raw["EMAIL"]||null,location:raw["LOCATION"]||raw["ADDRESS"]||null});
@@ -294,7 +324,8 @@ async function importStock(supabase:any,client:drive_v3.Drive,spreadsheetId:stri
 
 async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"miscellaneousCharges",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const clients=await clientLookup(supabase); const rawRows:{title:string;rowNumber:number;raw:Record<string,string>}[]=[];
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.miscellaneousCharges)
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=findChargeHeaderInfo(sheet.rows)
+      || headerInfo(sheet.rows,expectedHeaders.miscellaneousCharges)
       || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","LOCATION","LOGISTICS","ACCOMMODATION","SWAP","SIM REPLACEMENT","OTHERS"],3);
     if(!info)continue;summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];if(!name&&!raw["LOCATION"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw});}}
@@ -305,7 +336,7 @@ async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:st
 
 async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const weekRows=findWeeklyRows(sheet.rows);if(!weekRows.length)continue;const headerIndex=findWeeklyHeaderIndex(sheet.rows,weekRows[0].i);if(headerIndex<0)continue;summary.sheets++;const month=parseMonthTitle(sheet.rows[0]?.join(" ")||sheet.title);
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const weekRows=findWeeklyRows(sheet.rows);if(!weekRows.length)continue;const headerIndex=findWeeklyHeaderInfo(sheet.rows,weekRows[0].i);if(headerIndex<0)continue;summary.sheets++;const month=parseMonthTitle(sheet.rows[0]?.join(" ")||sheet.title);
     for(const item of weekRows){const weekCell=item.r.find(cell=>isWeekLabel(cell));const weekNo=Number(text(weekCell).replace(/\D/g,""))||1;const date=month?new Date(Date.UTC(month.year,month.month-1,(weekNo-1)*7+1)).toISOString().slice(0,10):parseDate(sheet.title);
       for(let col=1;col<sheet.rows[headerIndex].length;col++){const technician=text(sheet.rows[headerIndex][col]);if(!technician||norm(technician)==="TOTAL")continue;summary.rows++;const value=text(item.r[col]);if(!value){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("techieWeeklyActivity",sheet.title,(item.i+1)*1000+col),technician_name:technician,week_start:date,projects_completed:Math.max(0,Math.trunc(numeric(value))),vehicles_completed:0});}}
     }
