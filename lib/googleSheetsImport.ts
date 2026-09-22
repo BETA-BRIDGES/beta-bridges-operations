@@ -208,15 +208,24 @@ function fallbackHeaderRow(rows:Row[],kind:"client"|"charge"){
 }
 
 function findWeeklyHeaderInfo(rows:Row[],firstWeekIndex:number){
-  if(firstWeekIndex<0) return -1;
-  for(let i=firstWeekIndex-1;i>=0;i--){
-    const cells=rows[i].map(text).filter(Boolean);
-    if(cells.length>=2) return i;
+  const technicianNames=new Set(["BENJAMIN","GOKE","MICHAEL","SAMSON","SUNDAY","SYLVESTER","MALIK","JOSEPH","ISAAC","PATRICK","EMMANUEL","SHAMSUDEEN","JEREMIAH","MUTIU","AHMED","SEUN","AINA","FAVOUR"]);
+  for(let i=0;i<Math.min(rows.length,30);i++){
+    const cells=rows[i].map(v=>norm(v));
+    const hits=cells.filter(v=>technicianNames.has(v)).length;
+    const hasTotal=cells.includes("TOTAL");
+    if(hits>=2 || (hits>=1 && hasTotal)) return i;
   }
-  // Some exports place technician headings on the same row as another
-  // title/merged-cell structure. Fall back to the first row above the week
-  // labels containing at least one technician-like non-empty cell.
-  return firstWeekIndex>0?firstWeekIndex-1:-1;
+  if(firstWeekIndex>0) return firstWeekIndex-1;
+  return -1;
+}
+function detectWeeklyRows(rows:Row[],headerIndex:number){
+  const found=rows.map((r,i)=>({r,i})).filter(x=>isWeekLabel(x.r[0]) || x.r.some(cell=>isWeekLabel(cell)));
+  if(found.length) return found;
+  if(headerIndex>=0){
+    return rows.slice(headerIndex+1,headerIndex+6).map((r,i)=>({r,i:i+headerIndex+1}))
+      .filter(x=>x.r.some(cell=>/\bWEEK\b/i.test(text(cell))));
+  }
+  return [];
 }
 function rowMap(headers:Row,row:Row){
   const out:Record<string,string>={};
@@ -314,7 +323,7 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
     const fallback=(/^[A-Z]+\s+\d{4}$/i.test(sheet.title)||/CLIENT/i.test(sheet.title))?fallbackHeaderRow(sheet.rows,"client"):-1;
     const info=detected|| (fallback>=0?{index:fallback,score:0}:null);
     if(!info)continue;summary.sheets++;
-    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER/CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CLIENT NAME"]||raw["NAME"];if(!name){summary.skipped++;continue;}
+    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CLIENT NAME"]||raw["NAME"];if(!name){summary.skipped++;continue;}
       payloads.push({legacy_source_key:legacyClientKey(name),client_code:null,name,contact_person:raw["CONTACT PERSON"]||null,category:raw["CUSTOMER CATEGORY"]||raw["CATEGORY"]||null,phone:raw["PHONE NUMBER"]||raw["PHONE"]||null,email:raw["EMAIL ADDRESS"]||raw["EMAIL"]||null,location:raw["LOCATION"]||raw["ADDRESS"]||null});
     }}
   summary.imported=await upsertChunks(supabase,"clients",payloads,"legacy_source_key",summary.errors,"Client import"); return summary;
@@ -354,7 +363,7 @@ async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:st
     const fallback=(/SHEET1/i.test(sheet.title)||/MISC/i.test(sheet.title)||/CHARGE/i.test(sheet.title))?fallbackHeaderRow(sheet.rows,"charge"):-1;
     const info=detected|| (fallback>=0?{index:fallback,score:0}:null);
     if(!info)continue;summary.sheets++;
-    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];if(!name&&!raw["LOCATION"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw});}}
+    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"]||raw["NAME"];if(!name&&!raw["LOCATION"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CUSTOMER/ CLIENT NAME"]||x.raw["CUSTOMER/CLIENT NAME"]||x.raw["CLIENT NAME"]),clients);
   const payloads=rawRows.map(x=>{const raw=x.raw;const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];return{legacy_source_key:sourceKey("miscellaneousCharges",x.title,x.rowNumber),charge_id:"BB-LEGACY-CHG-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(name))||null,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),paid_or_approved:raw["PAID OR APPROVED"]||"Pending"};});
   summary.imported=await upsertChunks(supabase,"miscellaneous_charges",payloads,"legacy_source_key",summary.errors,"Miscellaneous Charges import");return summary;
@@ -363,13 +372,10 @@ async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:st
 async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
-    const weekRows=findWeeklyRows(sheet.rows);
-    let effectiveWeekRows=weekRows;
-    if(!effectiveWeekRows.length && /[A-Z]+\s+\d{4}/i.test(sheet.title)){
-      effectiveWeekRows=sheet.rows.map((r,i)=>({r,i})).filter(x=>x.r.some(cell=>/^\s*WEEK\s*[1-5]/i.test(text(cell))));
-    }
-    if(!effectiveWeekRows.length)continue;
-    const headerIndex=findWeeklyHeaderInfo(sheet.rows,effectiveWeekRows[0].i);if(headerIndex<0)continue;summary.sheets++;const month=parseMonthTitle(sheet.rows[0]?.join(" ")||sheet.title);
+    const headerCandidate=findWeeklyHeaderInfo(sheet.rows,findWeeklyRows(sheet.rows)[0]?.i??-1);
+    const effectiveWeekRows=detectWeeklyRows(sheet.rows,headerCandidate);
+    if(!effectiveWeekRows.length || headerCandidate<0)continue;
+    const headerIndex=headerCandidate;summary.sheets++;const month=parseMonthTitle(sheet.rows[0]?.join(" ")||sheet.title);
     for(const item of effectiveWeekRows){const weekCell=item.r.find(cell=>isWeekLabel(cell)||/^\s*WEEK\s*[1-5]/i.test(text(cell)));const weekNo=Number(text(weekCell).replace(/\D/g,""))||1;const date=month?new Date(Date.UTC(month.year,month.month-1,(weekNo-1)*7+1)).toISOString().slice(0,10):parseDate(sheet.title);
       for(let col=1;col<sheet.rows[headerIndex].length;col++){const technician=text(sheet.rows[headerIndex][col]);if(!technician||norm(technician)==="TOTAL")continue;summary.rows++;const value=text(item.r[col]);if(!value){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("techieWeeklyActivity",sheet.title,(item.i+1)*1000+col),technician_name:technician,week_start:date,projects_completed:Math.max(0,Math.trunc(numeric(value))),vehicles_completed:0});}}
     }
