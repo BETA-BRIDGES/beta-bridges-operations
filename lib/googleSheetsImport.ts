@@ -384,41 +384,92 @@ async function ensureClientsBatch(supabase:any,names:string[],existing:Map<strin
   return existing;
 }
 
+function clientDataLooksLikeSerial(value:unknown){
+  const s=text(value).replace(/,/g,"");
+  return /^\d+(?:\.0+)?$/.test(s);
+}
+function clientDataPositionalStart(rows:Row[]){
+  for(let i=0;i<rows.length;i++){
+    const row=rows[i];
+    const filled=row.map(text).filter(Boolean).length;
+    if(filled>=2 && clientDataLooksLikeSerial(row[0])){
+      const name=text(row[1]);
+      if(name && !/CUSTOMER|CLIENT|NAME/i.test(name)) return i;
+    }
+  }
+  return -1;
+}
+function clientDataSheetDate(title:string){
+  return /^[A-Z]+\s+\d{4}$/i.test(title);
+}
+
 async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const detected=clientHeaderInfo(sheet.rows)
       || locateClientHeader(sheet.rows)
       || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","CONTACT PERSON","PHONE NUMBER","EMAIL ADDRESS","LOCATION","CUSTOMER CATEGORY"],2);
-    const fallback=(/^[A-Z]+\s+\d{4}$/i.test(sheet.title)||/CLIENT/i.test(sheet.title))?locateClientHeader(sheet.rows)?.index ?? -1:-1;
-    const info=detected || (fallback>=0?{index:fallback,score:0}:null);
-    if(!info) continue;
 
-    const headers=sheet.rows[info.index];
-    const nameCol=findClientNameColumn(headers);
-    if(nameCol<0) continue;
-    const contactCol=findHeaderColumn(headers,["CONTACT PERSON","CONTACT"]);
-    const categoryCol=findHeaderColumn(headers,["CUSTOMER CATEGORY","CATEGORY"]);
-    const phoneCol=findHeaderColumn(headers,["PHONE NUMBER","PHONE","MOBILE NUMBER","MOBILE"]);
-    const emailCol=findHeaderColumn(headers,["EMAIL ADDRESS","EMAIL"]);
-    const locationCol=findHeaderColumn(headers,["LOCATION","ADDRESS"]);
+    let info=detected;
+    let positionalStart=-1;
+    if(!info && clientDataSheetDate(sheet.title)){
+      const fallbackHeader=locateClientHeader(sheet.rows);
+      if(fallbackHeader) info=fallbackHeader;
+      else positionalStart=clientDataPositionalStart(sheet.rows);
+    }
 
+    if(!info && positionalStart<0) continue;
     summary.sheets++;
-    for(let i=info.index+1;i<sheet.rows.length;i++){
-      summary.rows++;
-      const row=sheet.rows[i];
-      const name=text(row[nameCol]);
-      if(!name){summary.skipped++;continue;}
-      payloads.push({
-        legacy_source_key:legacyClientKey(name),
-        client_code:null,
-        name,
-        contact_person:contactCol>=0?text(row[contactCol])||null:null,
-        category:categoryCol>=0?text(row[categoryCol])||null:null,
-        phone:phoneCol>=0?text(row[phoneCol])||null:null,
-        email:emailCol>=0?text(row[emailCol])||null:null,
-        location:locationCol>=0?text(row[locationCol])||null:null
-      });
+
+    if(info){
+      const headers=sheet.rows[info.index];
+      const nameCol=findClientNameColumn(headers);
+      if(nameCol<0) continue;
+      const contactCol=findHeaderColumn(headers,["CONTACT PERSON","CONTACT"]);
+      const categoryCol=findHeaderColumn(headers,["CUSTOMER CATEGORY","CATEGORY"]);
+      const phoneCol=findHeaderColumn(headers,["PHONE NUMBER","PHONE","MOBILE NUMBER","MOBILE"]);
+      const emailCol=findHeaderColumn(headers,["EMAIL ADDRESS","EMAIL"]);
+      const locationCol=findHeaderColumn(headers,["LOCATION","ADDRESS"]);
+
+      for(let i=info.index+1;i<sheet.rows.length;i++){
+        summary.rows++;
+        const row=sheet.rows[i];
+        const name=text(row[nameCol]);
+        if(!name){summary.skipped++;continue;}
+        payloads.push({
+          legacy_source_key:legacyClientKey(name),
+          client_code:null,
+          name,
+          contact_person:contactCol>=0?text(row[contactCol])||null:null,
+          category:categoryCol>=0?text(row[categoryCol])||null:null,
+          phone:phoneCol>=0?text(row[phoneCol])||null:null,
+          email:emailCol>=0?text(row[emailCol])||null:null,
+          location:locationCol>=0?text(row[locationCol])||null:null
+        });
+      }
+    }else{
+      // Legacy Client Data monthly tabs follow the reference workbook's
+      // positional layout: S/N, CUSTOMER/CLIENT NAME, CONTACT PERSON,
+      // CUSTOMER CATEGORY, PHONE NUMBER, EMAIL ADDRESS, LOCATION.
+      for(let i=positionalStart;i<sheet.rows.length;i++){
+        summary.rows++;
+        const row=sheet.rows[i];
+        const name=text(row[1]);
+        if(!name || clientDataLooksLikeSerial(row[0])===false){
+          summary.skipped++;
+          continue;
+        }
+        payloads.push({
+          legacy_source_key:legacyClientKey(name),
+          client_code:null,
+          name,
+          contact_person:text(row[2])||null,
+          category:text(row[3])||null,
+          phone:text(row[4])||null,
+          email:text(row[5])||null,
+          location:text(row[6])||null
+        });
+      }
     }
   }
   if(!payloads.length){
