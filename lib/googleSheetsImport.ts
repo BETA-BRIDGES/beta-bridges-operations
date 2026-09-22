@@ -388,28 +388,28 @@ function clientDataLooksLikeSerial(value:unknown){
   const s=text(value).replace(/,/g,"");
   return /^\d+(?:\.0+)?$/.test(s);
 }
-function clientDataPositionalStart(rows:Row[]){
+function clientDataPositionalLayout(rows:Row[]){
   for(let i=0;i<rows.length;i++){
     const row=rows[i];
     const filled=row.map(text).filter(Boolean).length;
-    if(filled<2) continue;
+    if(filled<4) continue;
 
-    const first=text(row[0]);
-    const second=text(row[1]);
+    // Support both:
+    //   S/N | CLIENT NAME | ...
+    // and exported/indexed layouts such as:
+    //   INDEX | S/N | CLIENT NAME | ...
+    for(let serialCol=0;serialCol<=2 && serialCol<row.length;serialCol++){
+      const serial=text(row[serialCol]);
+      if(!clientDataLooksLikeSerial(serial)) continue;
 
-    // Normal legacy layout: S/N in col 1, customer name in col 2.
-    if(clientDataLooksLikeSerial(first) && second && !/CUSTOMER|CLIENT|NAME/i.test(second)){
-      return i;
-    }
-
-    // Some Google-exported tabs may lose the S/N value on the first data row.
-    // Treat a non-header value in column 2 with several populated companion
-    // fields as the positional client row.
-    if(!clientDataLooksLikeSerial(first) && second && !/CUSTOMER|CLIENT|NAME/i.test(second) && filled>=4){
-      return i;
+      for(let nameCol=serialCol+1;nameCol<=serialCol+2 && nameCol<row.length;nameCol++){
+        const name=text(row[nameCol]);
+        if(!name || clientDataLooksLikeSerial(name) || /CUSTOMER|CLIENT|NAME/i.test(name)) continue;
+        return {startIndex:i,serialCol,nameCol};
+      }
     }
   }
-  return -1;
+  return null;
 }
 function clientDataSheetDate(title:string){
   return /^[A-Z]+\s+\d{4}$/i.test(title);
@@ -423,14 +423,14 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
       || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","CONTACT PERSON","PHONE NUMBER","EMAIL ADDRESS","LOCATION","CUSTOMER CATEGORY"],2);
 
     let info=detected;
-    let positionalStart=-1;
+    let positionalLayout:{startIndex:number;serialCol:number;nameCol:number}|null=null;
     if(!info){
       const fallbackHeader=locateClientHeader(sheet.rows);
       if(fallbackHeader) info=fallbackHeader;
-      else positionalStart=clientDataPositionalStart(sheet.rows);
+      else positionalLayout=clientDataPositionalLayout(sheet.rows);
     }
 
-    if(!info && positionalStart<0) continue;
+    if(!info && !positionalLayout) continue;
     summary.sheets++;
 
     if(info){
@@ -460,14 +460,14 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
         });
       }
     }else{
-      // Legacy Client Data monthly tabs follow the reference workbook's
-      // positional layout: S/N, CUSTOMER/CLIENT NAME, CONTACT PERSON,
-      // CUSTOMER CATEGORY, PHONE NUMBER, EMAIL ADDRESS, LOCATION.
-      for(let i=positionalStart;i<sheet.rows.length;i++){
+      const {startIndex,serialCol,nameCol}=positionalLayout!;
+      const offset=nameCol+1;
+      for(let i=startIndex;i<sheet.rows.length;i++){
         summary.rows++;
         const row=sheet.rows[i];
-        const name=text(row[1]);
-        if(!name || clientDataLooksLikeSerial(row[0])===false){
+        const serial=text(row[serialCol]);
+        const name=text(row[nameCol]);
+        if(!name || !clientDataLooksLikeSerial(serial) || /CUSTOMER|CLIENT|NAME/i.test(name)){
           summary.skipped++;
           continue;
         }
@@ -475,11 +475,11 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
           legacy_source_key:legacyClientKey(name),
           client_code:null,
           name,
-          contact_person:text(row[2])||null,
-          category:text(row[3])||null,
-          phone:text(row[4])||null,
-          email:text(row[5])||null,
-          location:text(row[6])||null
+          contact_person:text(row[offset])||null,
+          category:text(row[offset+1])||null,
+          phone:text(row[offset+2])||null,
+          email:text(row[offset+3])||null,
+          location:text(row[offset+4])||null
         });
       }
     }
