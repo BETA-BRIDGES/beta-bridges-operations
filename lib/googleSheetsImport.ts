@@ -392,9 +392,21 @@ function clientDataPositionalStart(rows:Row[]){
   for(let i=0;i<rows.length;i++){
     const row=rows[i];
     const filled=row.map(text).filter(Boolean).length;
-    if(filled>=2 && clientDataLooksLikeSerial(row[0])){
-      const name=text(row[1]);
-      if(name && !/CUSTOMER|CLIENT|NAME/i.test(name)) return i;
+    if(filled<2) continue;
+
+    const first=text(row[0]);
+    const second=text(row[1]);
+
+    // Normal legacy layout: S/N in col 1, customer name in col 2.
+    if(clientDataLooksLikeSerial(first) && second && !/CUSTOMER|CLIENT|NAME/i.test(second)){
+      return i;
+    }
+
+    // Some Google-exported tabs may lose the S/N value on the first data row.
+    // Treat a non-header value in column 2 with several populated companion
+    // fields as the positional client row.
+    if(!clientDataLooksLikeSerial(first) && second && !/CUSTOMER|CLIENT|NAME/i.test(second) && filled>=4){
+      return i;
     }
   }
   return -1;
@@ -412,7 +424,7 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
 
     let info=detected;
     let positionalStart=-1;
-    if(!info && clientDataSheetDate(sheet.title)){
+    if(!info){
       const fallbackHeader=locateClientHeader(sheet.rows);
       if(fallbackHeader) info=fallbackHeader;
       else positionalStart=clientDataPositionalStart(sheet.rows);
