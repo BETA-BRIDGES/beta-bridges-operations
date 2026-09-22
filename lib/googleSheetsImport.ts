@@ -180,6 +180,28 @@ function findHeaderColumn(headers:Row,aliases:string[]){
   }
   return -1;
 }
+function findClientNameColumn(headers:Row[]){
+  const exact=findHeaderColumn(headers,[
+    "CUSTOMER CLIENT NAME","CUSTOMER CLIENT NAMES",
+    "CUSTOMER NAME","CUSTOMER NAMES",
+    "CLIENT NAME","CLIENT NAMES","NAME"
+  ]);
+  if(exact>=0) return exact;
+
+  let best={index:-1,score:0};
+  headers.forEach((header,index)=>{
+    const h=normHeader(header);
+    if(!h) return;
+    let score=0;
+    if(/\bCLIENTS?\b/.test(h)) score+=6;
+    if(/\bCUSTOMERS?\b/.test(h)) score+=6;
+    if(/\bNAMES?\b/.test(h)) score+=5;
+    if(/^NAME$/.test(h)) score+=4;
+    if(/CONTACT|CATEGORY|PHONE|MOBILE|EMAIL|LOCATION|ADDRESS/.test(h)) score-=3;
+    if(score>best.score) best={index,score};
+  });
+  return best.score>=5?best.index:-1;
+}
 function findChargeHeaderInfo(rows:Row[]){
   let best={index:-1,score:0};
   for(let i=0;i<rows.length;i++){
@@ -346,7 +368,7 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
     if(!info) continue;
 
     const headers=sheet.rows[info.index];
-    const nameCol=findHeaderColumn(headers,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME"]);
+    const nameCol=findClientNameColumn(headers);
     if(nameCol<0) continue;
     const contactCol=findHeaderColumn(headers,["CONTACT PERSON","CONTACT"]);
     const categoryCol=findHeaderColumn(headers,["CUSTOMER CATEGORY","CATEGORY"]);
