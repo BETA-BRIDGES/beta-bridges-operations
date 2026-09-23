@@ -500,12 +500,15 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
     const monthTab=!!parseMonthTitle(title);
     const explicitClientSheet=/CLIENT/i.test(title);
     const nonClientTab=/TECHIE|WEEK|ACTIVITY|MISC|CHARGE|STOCK|JOB|DONE|LISTING/i.test(title);
+    const detectedHeader=clientHeaderInfo(sheet.rows);
 
-    // The connected Client Data workbook can contain unrelated legacy tabs.
-    // Only month-named/client-named tabs are eligible for this importer.
-    if((nonClientTab && !explicitClientSheet) || (!monthTab && !explicitClientSheet)) continue;
+    // A standalone exported Client Data workbook may use a generic tab name
+    // such as "Sheet1". Trust a strong client-table header when present, while
+    // still excluding unrelated legacy tabs that lack that header.
+    if((nonClientTab && !explicitClientSheet && !detectedHeader) ||
+       (!monthTab && !explicitClientSheet && !detectedHeader)) continue;
 
-    const detected=clientHeaderInfo(sheet.rows)
+    const detected=detectedHeader
       || locateClientHeader(sheet.rows)
       || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","CONTACT PERSON","PHONE NUMBER","EMAIL ADDRESS","LOCATION","CUSTOMER CATEGORY"],2);
 
