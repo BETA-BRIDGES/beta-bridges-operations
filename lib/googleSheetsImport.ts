@@ -385,8 +385,8 @@ async function ensureClientsBatch(supabase:any,names:string[],existing:Map<strin
 }
 
 function clientDataLooksLikeSerial(value:unknown){
-  const s=text(value).replace(/,/g,"");
-  return /^\d+(?:\.0+)?$/.test(s);
+  const s=text(value).replace(/,/g,"").trim();
+  return /^#?\d+(?:\.0+)?[.)\-:\/]?$/.test(s);
 }
 function clientDataPositionalLayout(rows:Row[]){
   for(let i=0;i<rows.length;i++){
@@ -436,64 +436,61 @@ function isKnownNonClientName(value:unknown){
 function parseClientDataRow(row:Row){
   const cells=row.map(text);
 
-  // Strong signal path: real Client Data rows normally contain a phone and/or
-  // email. Use those fields to locate the nearby person/company name column.
-  const signalCols=cells.map((v,i)=>({v,i}))
-    .filter(x=>looksLikeClientEmail(x.v)||looksLikeClientPhone(x.v))
-    .map(x=>x.i);
-
-  if(signalCols.length){
-    const firstSignal=Math.min(...signalCols);
-    let best:{nameCol:number;score:number}|null=null;
-    for(let i=0;i<firstSignal;i++){
-      const name=cells[i];
+  // Best path: use an S/N-like value as an anchor and inspect the next few
+  // columns for the customer name. This matches the legacy Client Data
+  // layout while avoiding Techie Weekly rows.
+  const serialCols=cells.map((v,i)=>({v,i})).filter(x=>clientDataLooksLikeSerial(x.v)).map(x=>x.i);
+  for(const serialCol of serialCols){
+    for(const nameCol of [serialCol+1,serialCol+2,serialCol+3]){
+      if(nameCol>=cells.length) continue;
+      const name=cells[nameCol];
       if(!looksLikeClientName(name)||isKnownNonClientName(name)) continue;
-      let score=4-(firstSignal-i)*0.25;
-      if(clientDataLooksLikeSerial(cells[i-1])) score+=3;
-      if(cells.slice(i+1).some(v=>looksLikeClientEmail(v))) score+=2;
-      if(cells.slice(i+1).some(v=>looksLikeClientPhone(v))) score+=2;
-      if(score>(best?.score??-1)) best={nameCol:i,score};
-    }
-    if(best){
-      const nameCol=best.nameCol;
-      const emailCol=cells.findIndex((v,i)=>i>nameCol&&looksLikeClientEmail(v));
-      const phoneCol=cells.findIndex((v,i)=>i>nameCol&&looksLikeClientPhone(v));
+
+      const remainder=cells.slice(nameCol+1);
+      const hasEmail=remainder.some(looksLikeClientEmail);
+      const hasPhone=remainder.some(looksLikeClientPhone);
+      const alphaCompanions=remainder.filter(v=>/[A-Za-z]/.test(v)&&!isKnownNonClientName(v)).length;
+
+      // Weekly rows contain mostly labels/numbers and should not qualify.
+      if(!hasEmail && !hasPhone && alphaCompanions<1) continue;
+
+      const contact=remainder.find(v=>/[A-Za-z]/.test(v)&&!looksLikeClientEmail(v)&&!looksLikeClientPhone(v)&&!isKnownNonClientName(v))||null;
+      const phone=remainder.find(looksLikeClientPhone)||null;
+      const email=remainder.find(looksLikeClientEmail)||null;
+      const locationCandidates=remainder.filter(v=>v&&v!==contact&&v!==phone&&v!==email);
+
       return {
-        name:cells[nameCol],
-        contact:cells[nameCol+1]&&!looksLikeClientPhone(cells[nameCol+1])&&!looksLikeClientEmail(cells[nameCol+1])?cells[nameCol+1]:null,
-        category:null,
-        phone:phoneCol>=0?cells[phoneCol]||null:null,
-        email:emailCol>=0?cells[emailCol]||null:null,
-        location:cells.slice(Math.max(nameCol+1,firstSignal+1)).find(v=>v&&!looksLikeClientEmail(v)&&!looksLikeClientPhone(v)&&/[A-Za-z]/.test(v))||null
+        name,
+        contact,
+        category:locationCandidates[0]||null,
+        phone,
+        email,
+        location:locationCandidates[1]||locationCandidates[0]||null
       };
     }
   }
 
-  // Positional fallback for rows that have no contact signal.
-  const maxCols=Math.min(cells.length,10);
-  const candidateCols=[1,2,0,3,4,5,6];
-  let best:{nameCol:number;score:number}|null=null;
-  for(const nameCol of candidateCols){
-    if(nameCol>=maxCols) continue;
-    const name=cells[nameCol];
-    if(!looksLikeClientName(name)||isKnownNonClientName(name)) continue;
-    let score=2;
-    if(clientDataLooksLikeSerial(cells[nameCol-1])) score+=3;
-    const nearby=cells.slice(nameCol+1,Math.min(cells.length,nameCol+6));
-    if(nearby.some(v=>/[A-Za-z]{3,}/.test(v))) score+=1;
-    if(nearby.length>=4&&nearby.filter(Boolean).length>=3) score+=1;
-    if(score>(best?.score??-1)) best={nameCol,score};
+  // Fallback for rows where S/N is missing/malformed but contact data exists.
+  const signalCols=cells.map((v,i)=>({v,i}))
+    .filter(x=>looksLikeClientEmail(x.v)||looksLikeClientPhone(x.v))
+    .map(x=>x.i);
+  if(signalCols.length){
+    const firstSignal=Math.min(...signalCols);
+    for(let nameCol=0;nameCol<Math.min(firstSignal,8);nameCol++){
+      const name=cells[nameCol];
+      if(!looksLikeClientName(name)||isKnownNonClientName(name)) continue;
+      return {
+        name,
+        contact:cells[nameCol+1]||null,
+        category:cells[nameCol+2]||null,
+        phone:cells.find(looksLikeClientPhone)||null,
+        email:cells.find(looksLikeClientEmail)||null,
+        location:cells[nameCol+5]||null
+      };
+    }
   }
-  if(!best||best.score<4) return null;
-  const nameCol=best.nameCol;
-  return {
-    name:cells[nameCol],
-    contact:cells[nameCol+1]||null,
-    category:cells[nameCol+2]||null,
-    phone:cells[nameCol+3]||null,
-    email:cells[nameCol+4]||null,
-    location:cells[nameCol+5]||null
-  };
+
+  return null;
 }
 
 async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
