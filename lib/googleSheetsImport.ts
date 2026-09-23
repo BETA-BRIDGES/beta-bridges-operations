@@ -421,25 +421,31 @@ function looksLikeClientName(value:unknown){
   return /[A-Za-z]/.test(s) && s.length>=2;
 }
 function parseClientDataRow(row:Row){
-  const maxCols=Math.min(row.length,8);
-  // Prefer the second/third columns used by the legacy Client Data layout.
-  const candidateCols=[1,2,0,3];
+  const maxCols=Math.min(row.length,10);
+  // Client Data tabs are month-named sheets. Prefer the legacy second/third
+  // columns but score all plausible positions so shifted export columns work.
+  const candidateCols=[1,2,0,3,4];
   let best:{nameCol:number;score:number}|null=null;
+
   for(const nameCol of candidateCols){
     if(nameCol>=maxCols) continue;
     const name=text(row[nameCol]);
     if(!looksLikeClientName(name)) continue;
 
-    let score=5;
+    let score=4;
+    const prev=text(row[nameCol-1]);
     const nearby=row.slice(nameCol+1,Math.min(row.length,nameCol+6)).map(text);
+
+    if(clientDataLooksLikeSerial(prev)) score+=3;
     if(nearby.some(v=>/\S+@\S+\.\S+/.test(v))) score+=2;
     if(nearby.some(v=>/\d{7,}/.test(v))) score+=2;
-    if(nearby.some(v=>/LAGOS|ABUJA|IBADAN|IBADAN|PORT HARCOURT|BENIN|KANO|PH|OWERRI|ENUGU/i.test(v))) score+=1;
-    if(clientDataLooksLikeSerial(row[nameCol-1])) score+=2;
+    if(nearby.some(v=>/LAGOS|ABUJA|IBADAN|PORT HARCOURT|BENIN|KANO|OWERRI|ENUGU/i.test(v))) score+=1;
+    if(!nearby.some(v=>/WEEK|TECHIE|ACTIVITY|TOTAL/i.test(v))) score+=1;
+
     if(score>(best?.score??-1)) best={nameCol,score};
   }
-  if(!best) return null;
 
+  if(!best) return null;
   const nameCol=best.nameCol;
   return {
     name:text(row[nameCol]),
@@ -454,6 +460,15 @@ function parseClientDataRow(row:Row){
 async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"clientData",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
+    const title=sheet.title;
+    const monthTab=!!parseMonthTitle(title);
+    const explicitClientSheet=/CLIENT/i.test(title);
+    const nonClientTab=/TECHIE|WEEK|ACTIVITY|MISC|CHARGE|STOCK|JOB|DONE|LISTING/i.test(title);
+
+    // The connected Client Data workbook can contain unrelated legacy tabs.
+    // Only month-named/client-named tabs are eligible for this importer.
+    if((nonClientTab && !explicitClientSheet) || (!monthTab && !explicitClientSheet)) continue;
+
     const detected=clientHeaderInfo(sheet.rows)
       || locateClientHeader(sheet.rows)
       || flexibleHeaderInfo(sheet.rows,["CUSTOMER CLIENT NAME","CLIENT NAME","CUSTOMER NAME","NAME","CONTACT PERSON","PHONE NUMBER","EMAIL ADDRESS","LOCATION","CUSTOMER CATEGORY"],2);
@@ -508,8 +523,8 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
       let importedFromRows=0;
 
       // Parse each row independently instead of assuming every legacy tab has
-      // identical leading/index columns. This handles sheets where S/N or an
-      // extra index column appears inconsistently.
+      // identical leading/index columns. Month-named tabs provide the final
+      // contextual guard that these rows belong to Client Data.
       for(let i=fallbackStart;i<sheet.rows.length;i++){
         const parsed=parseClientDataRow(sheet.rows[i]);
         if(!parsed){
