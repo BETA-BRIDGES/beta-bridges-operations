@@ -420,40 +420,79 @@ function looksLikeClientName(value:unknown){
   if(/^(S\/?N|SERIAL(?: NUMBER)?|CUSTOMER(?:\/|\s+\/\s+)?CLIENT(?:\s+NAME)?|CUSTOMER CLIENT NAME|CLIENT NAME|CONTACT PERSON|CUSTOMER CATEGORY|PHONE NUMBER|EMAIL ADDRESS|LOCATION)$/i.test(s)) return false;
   return /[A-Za-z]/.test(s) && s.length>=2;
 }
+function looksLikeClientPhone(value:unknown){
+  const s=text(value).replace(/[\s().-]/g,"");
+  return /^(?:\+?234|0)?[789]\d{8,10}$/.test(s) || /^\d{10,13}$/.test(s);
+}
+function looksLikeClientEmail(value:unknown){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text(value));
+}
+function isKnownNonClientName(value:unknown){
+  const s=norm(value);
+  if(!s) return true;
+  return /^(?:WEEK|\d(?:ST|ND|RD|TH)? WEEK)|^(?:TECHIE|TECHIES).*ACTIVIT|^TOTAL$|^EXTRA(?: DAYS| 3 DAYS)?$|^\d+ HCS$/.test(s)
+    || ["BENJAMIN","GOKE","MICHAEL","SAMSON","SUNDAY","SYLVESTER","MALIK","JOSEPH","ISAAC","PATRICK","EMMANUEL","SHAMSUDEEN","JEREMIAH","MUTIU","AHMED","SEUN","AINA","FAVOUR","ADEKUNLE","ALEEM","DAVID","FRANK"].includes(s);
+}
 function parseClientDataRow(row:Row){
-  const maxCols=Math.min(row.length,10);
-  // Client Data tabs are month-named sheets. Prefer the legacy second/third
-  // columns but score all plausible positions so shifted export columns work.
-  const candidateCols=[1,2,0,3,4];
-  let best:{nameCol:number;score:number}|null=null;
+  const cells=row.map(text);
 
-  for(const nameCol of candidateCols){
-    if(nameCol>=maxCols) continue;
-    const name=text(row[nameCol]);
-    if(!looksLikeClientName(name)) continue;
+  // Strong signal path: real Client Data rows normally contain a phone and/or
+  // email. Use those fields to locate the nearby person/company name column.
+  const signalCols=cells.map((v,i)=>({v,i}))
+    .filter(x=>looksLikeClientEmail(x.v)||looksLikeClientPhone(x.v))
+    .map(x=>x.i);
 
-    let score=4;
-    const prev=text(row[nameCol-1]);
-    const nearby=row.slice(nameCol+1,Math.min(row.length,nameCol+6)).map(text);
-
-    if(clientDataLooksLikeSerial(prev)) score+=3;
-    if(nearby.some(v=>/\S+@\S+\.\S+/.test(v))) score+=2;
-    if(nearby.some(v=>/\d{7,}/.test(v))) score+=2;
-    if(nearby.some(v=>/LAGOS|ABUJA|IBADAN|PORT HARCOURT|BENIN|KANO|OWERRI|ENUGU/i.test(v))) score+=1;
-    if(!nearby.some(v=>/WEEK|TECHIE|ACTIVITY|TOTAL/i.test(v))) score+=1;
-
-    if(score>(best?.score??-1)) best={nameCol,score};
+  if(signalCols.length){
+    const firstSignal=Math.min(...signalCols);
+    let best:{nameCol:number;score:number}|null=null;
+    for(let i=0;i<firstSignal;i++){
+      const name=cells[i];
+      if(!looksLikeClientName(name)||isKnownNonClientName(name)) continue;
+      let score=4-(firstSignal-i)*0.25;
+      if(clientDataLooksLikeSerial(cells[i-1])) score+=3;
+      if(cells.slice(i+1).some(v=>looksLikeClientEmail(v))) score+=2;
+      if(cells.slice(i+1).some(v=>looksLikeClientPhone(v))) score+=2;
+      if(score>(best?.score??-1)) best={nameCol:i,score};
+    }
+    if(best){
+      const nameCol=best.nameCol;
+      const emailCol=cells.findIndex((v,i)=>i>nameCol&&looksLikeClientEmail(v));
+      const phoneCol=cells.findIndex((v,i)=>i>nameCol&&looksLikeClientPhone(v));
+      return {
+        name:cells[nameCol],
+        contact:cells[nameCol+1]&&!looksLikeClientPhone(cells[nameCol+1])&&!looksLikeClientEmail(cells[nameCol+1])?cells[nameCol+1]:null,
+        category:null,
+        phone:phoneCol>=0?cells[phoneCol]||null:null,
+        email:emailCol>=0?cells[emailCol]||null:null,
+        location:cells.slice(Math.max(nameCol+1,firstSignal+1)).find(v=>v&&!looksLikeClientEmail(v)&&!looksLikeClientPhone(v)&&/[A-Za-z]/.test(v))||null
+      };
+    }
   }
 
-  if(!best) return null;
+  // Positional fallback for rows that have no contact signal.
+  const maxCols=Math.min(cells.length,10);
+  const candidateCols=[1,2,0,3,4,5,6];
+  let best:{nameCol:number;score:number}|null=null;
+  for(const nameCol of candidateCols){
+    if(nameCol>=maxCols) continue;
+    const name=cells[nameCol];
+    if(!looksLikeClientName(name)||isKnownNonClientName(name)) continue;
+    let score=2;
+    if(clientDataLooksLikeSerial(cells[nameCol-1])) score+=3;
+    const nearby=cells.slice(nameCol+1,Math.min(cells.length,nameCol+6));
+    if(nearby.some(v=>/[A-Za-z]{3,}/.test(v))) score+=1;
+    if(nearby.length>=4&&nearby.filter(Boolean).length>=3) score+=1;
+    if(score>(best?.score??-1)) best={nameCol,score};
+  }
+  if(!best||best.score<4) return null;
   const nameCol=best.nameCol;
   return {
-    name:text(row[nameCol]),
-    contact:text(row[nameCol+1])||null,
-    category:text(row[nameCol+2])||null,
-    phone:text(row[nameCol+3])||null,
-    email:text(row[nameCol+4])||null,
-    location:text(row[nameCol+5])||null
+    name:cells[nameCol],
+    contact:cells[nameCol+1]||null,
+    category:cells[nameCol+2]||null,
+    phone:cells[nameCol+3]||null,
+    email:cells[nameCol+4]||null,
+    location:cells[nameCol+5]||null
   };
 }
 
