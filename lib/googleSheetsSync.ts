@@ -262,7 +262,7 @@ export async function syncGoogleSheets(userId:string){
         const dateRows=await selectAllRows(supabase,meta.table,meta.field,(q:any)=>q.not(meta.field,"is",null));
         const dataDates=Array.from(new Set((dateRows??[]).map((x:any)=>dateKeyFromValue(x[meta.field])).filter(Boolean))) as string[];
         const years=new Set(dataDates.map(x=>Number(x.slice(0,4))).filter(Number.isFinite));
-        const fallbackYear=years.size===1?[...years][0]:undefined;
+        const fallbackYear=years.size===1?Array.from(years)[0]:undefined;
         const dateTabs=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date);
         if(!dateTabs.length){
           const sheet=preferredSheet(connection.module,tabs);
