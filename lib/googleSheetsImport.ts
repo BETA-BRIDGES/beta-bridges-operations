@@ -45,7 +45,10 @@ function normHeader(value: unknown){
     .replace(/INSTALLER NAME/g,"INSTALLER NAME");
 }
 function parseLegacyTabDate(value: unknown, fallbackYear = new Date().getFullYear()){
-  const raw=text(value).toUpperCase().replace(/[,]/g," ").replace(/\s+/g," ").trim();
+  let raw=text(value).toUpperCase().replace(/[,]/g," ").replace(/\s+/g," ").trim();
+  // A legacy tab is named "1OTH-NOV" in the source workbook; normalize the
+  // obvious O/0 typo so its rows retain the correct 10-November date.
+  raw=raw.replace(/\b1O(TH)\b/g,"10$1");
   if(!raw) return null;
   const months:Record<string,number>={
     JAN:1,JANUARY:1,FEB:2,FEBRUARY:2,MAR:3,MARCH:3,APR:4,APRIL:4,MAY:5,
@@ -128,6 +131,34 @@ function parseMonthTitle(title:string){
   return idx>=0 ? {year:Number(m[2]),month:idx+1} : null;
 }
 
+function worksheetRows(worksheet:XLSX.WorkSheet){
+  if(!worksheet["!ref"]) return [] as Row[];
+  const range=XLSX.utils.decode_range(worksheet["!ref"]);
+  const rows:Row[]=[];
+  for(let r=range.s.r;r<=range.e.r;r++){
+    const row:Row[]=[];
+    for(let c=range.s.c;c<=range.e.c;c++){
+      const cell=worksheet[XLSX.utils.encode_cell({r,c})] as XLSX.CellObject|undefined;
+      if(!cell){row.push("");continue;}
+      if(cell.t==="n" && typeof cell.v==="number"){
+        // Keep date/time cells formatted as dates/times, but preserve numeric
+        // identifiers (including 15-digit tracker/IMEI values) as decimal
+        // strings instead of Excel's scientific notation.
+        const format=typeof cell.z==="string"?cell.z:"";
+        if(format && XLSX.SSF.is_date(format)){
+          row.push(text(cell.w ?? XLSX.SSF.format(format,cell.v)));
+        }else{
+          row.push(String(cell.v));
+        }
+      }else{
+        row.push(text(cell.v ?? cell.w));
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 async function loadDriveWorkbook(client:drive_v3.Drive,spreadsheetId:string){
   const xlsxMime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   let response;
@@ -146,7 +177,7 @@ async function loadDriveWorkbook(client:drive_v3.Drive,spreadsheetId:string){
   const workbook=XLSX.read(buffer,{type:"buffer",cellDates:false});
   return workbook.SheetNames.map(title=>({
     title,
-    rows:(XLSX.utils.sheet_to_json(workbook.Sheets[title],{header:1,defval:"",raw:false}) as unknown[][]).map(row=>row.map(text))
+    rows:worksheetRows(workbook.Sheets[title])
   }));
 }
 
