@@ -53,13 +53,13 @@ function parseLegacyTabDate(value: unknown, fallbackYear = new Date().getFullYea
     OCT:10,OCTOBER:10,NOV:11,NOVEMBER:11,DEC:12,DECEMBER:12
   };
   const ordinal=(s:string)=>Number(s.replace(/(ST|ND|RD|TH)$/,""));
-  let m=raw.match(/^(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)[\s\-_./]*(\\d{1,2}(?:ST|ND|RD|TH)?)$/);
+  let m=raw.match(/^(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)[\s\-_./]*(\d{1,2}(?:ST|ND|RD|TH)?)$/);
   if(m){
     const month=months[m[1]];
     const day=ordinal(m[2]);
     if(month && day>=1 && day<=31) return fallbackYear+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0");
   }
-  m=raw.match(/^(\\d{1,2}(?:ST|ND|RD|TH)?)[\s\-_./]*(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)$/);
+  m=raw.match(/^(\d{1,2}(?:ST|ND|RD|TH)?)[\s\-_./]*(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)$/);
   if(m){
     const day=ordinal(m[1]);
     const month=months[m[2]];
