@@ -36,19 +36,19 @@ function parseSheetDate(title:string,fallbackYear?:number){
     JUN:6,JUNE:6,JUL:7,JULY:7,AUG:8,AUGUST:8,SEP:9,SEPT:9,SEPTEMBER:9,
     OCT:10,OCTOBER:10,NOV:11,NOVEMBER:11,DEC:12,DECEMBER:12
   };
-  let m=s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
-  if(m) return \`${m[3]}-\${m[2]}.padStart(2,"0")}-\${m[1]}.padStart(2,"0")\`;
-  m=s.match(/^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/);
-  if(m) return \`${m[1]}-\${m[2]}.padStart(2,"0")}-\${m[3]}.padStart(2,"0")\`;
+  let m=s.match(/^(\d{1,2})[\\/.-](\d{1,2})[\\/.-](\d{4})$/);
+  if(m) return m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0");
+  m=s.match(/^(\d{4})[\\/.-](\d{1,2})[\\/.-](\d{1,2})$/);
+  if(m) return m[1]+"-"+m[2].padStart(2,"0")+"-"+m[3].padStart(2,"0");
   m=s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
   if(m){
     const month=monthMap[m[2].toUpperCase()];
-    if(month) return \`${m[3]}-\${String(month).padStart(2,"0")}-\${m[1].padStart(2,"0")}\`;
+    if(month) return m[3]+"-"+String(month).padStart(2,"0")+"-"+m[1].padStart(2,"0");
   }
   m=s.match(/^([A-Za-z]+)[\s-]*(\d{1,2})(?:ST|ND|RD|TH)?$/i);
   if(m){
     const month=monthMap[m[1].toUpperCase()];
-    if(month && fallbackYear) return \`${fallbackYear}-\${String(month).padStart(2,"0")}-\${m[2].padStart(2,"0")}\`;
+    if(month && fallbackYear) return String(fallbackYear)+"-"+String(month).padStart(2,"0")+"-"+m[2].padStart(2,"0");
   }
   return null;
 }
