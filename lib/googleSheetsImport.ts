@@ -643,7 +643,7 @@ async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:str
     if(!effectiveWeekRows.length || headerCandidate<0) continue;
 
     const headers=sheet.rows[headerCandidate];
-    const month=parseMonthTitle(sheet.rows[0]?.join(" ")||sheet.title);
+    const month=parseMonthTitle(sheet.rows[0]?.join(" ")) || parseMonthTitle(sheet.title);
     summary.sheets++;
 
     for(const item of effectiveWeekRows){
