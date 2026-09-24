@@ -4,7 +4,7 @@ import type { Role } from "./permissions";
 export type ClientRecord={id:string;clientCode:string;name:string;contactPerson:string;phone:string;email:string;location:string;category:string;status:string;notes:string};
 export type ChargeRecord={id:string;chargeId:string;client:string;clientId:string|null;location:string;logistics:number;accommodation:number;swap:number;deinstallation:number;reinstallation:number;healthCheck:number;simReplacement:number;others:number;status:string};
 export type StockRecord={id:string;deviceId:string;simId:string;dateIssued:string;dateInstalled:string;installer:string;client:string;location:string;network:string;deviceType:string;deviceStatus:string;dateCollected:string;operationsRemark:string;operationsCorrection:string;vehicleDetails:string;vehicleMake:string;otherIssues:string};
-export type CompletionRecord={id:string;jobId:string;deviceId:string;date:string;installer:string;location:string;client:string;vehicleDetails:string;vehicleMake:string;status:string;tssOfficer:string;remarks:string};
+export type CompletionRecord={id:string;jobId:string;jobUuid:string|null;deviceId:string;date:string;installer:string;location:string;client:string;vehicleDetails:string;vehicleMake:string;status:string;tssOfficer:string;remarks:string};
 export type WeeklyRecord={id:string;technician:string;technicianId:string;week:string;weekStart:string;projects:number;vehiclesCompleted:number;date:string;remarks:string};
 export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean};
 export type NotificationRecord={id:string;title:string;message:string;type:string;readAt:string|null;createdAt:string;relatedTaskId:string|null};
@@ -41,7 +41,29 @@ export async function loadCompletions():Promise<CompletionRecord[]>{
   if(!supabase) return [];
   const {data,error}=await supabase.from("job_completions").select("id,job_id,device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer,remarks").order("completion_date",{ascending:false});
   if(error) throw error;
-  return (data??[]).map(c=>({id:c.id,jobId:c.job_id??"",deviceId:c.device_id??"",date:safeDate(c.completion_date),installer:c.installer??"",location:c.location??"",client:c.client??"",vehicleDetails:c.vehicle_details??"",vehicleMake:c.vehicle_make??"",status:c.status??"",tssOfficer:c.tss_officer??"",remarks:c.remarks??""}));
+  const rows=(data??[]) as {id:string;job_id:string|null;device_id:string|null;completion_date:string|null;installer:string|null;location:string|null;client:string|null;vehicle_details:string|null;vehicle_make:string|null;status:string|null;tss_officer:string|null;remarks:string|null}[];
+  const jobIds=Array.from(new Set(rows.map(c=>c.job_id).filter(Boolean))) as string[];
+  const chunks=Array.from({length:Math.ceil(jobIds.length/100)},(_,i)=>jobIds.slice(i*100,(i+1)*100));
+  const jobResults=await Promise.all(chunks.map(ids=>supabase!.from("jobs").select("id,job_id").in("id",ids)));
+  const jobError=jobResults.find(x=>x.error)?.error??null;
+  if(jobError) throw jobError;
+  const jobMap=new Map<string,string>();
+  jobResults.forEach(result=>{(result.data??[]).forEach((job:any)=>jobMap.set(String(job.id),String(job.job_id??"")))});
+  return rows.map(c=>({
+    id:c.id,
+    jobId:c.job_id?jobMap.get(c.job_id)||"": "",
+    jobUuid:c.job_id??null,
+    deviceId:c.device_id??"",
+    date:safeDate(c.completion_date),
+    installer:c.installer??"",
+    location:c.location??"",
+    client:c.client??"",
+    vehicleDetails:c.vehicle_details??"",
+    vehicleMake:c.vehicle_make??"",
+    status:c.status??"",
+    tssOfficer:c.tss_officer??"",
+    remarks:c.remarks??""
+  }));
 }
 
 export async function loadCharges():Promise<ChargeRecord[]>{
