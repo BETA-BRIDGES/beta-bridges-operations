@@ -35,7 +35,7 @@ function parseSheetDate(title:string){
   if(m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
   m=s.match(/^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/);
   if(m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
-  m=s.match(/^(\d{1,2})\\s+([A-Za-z]+)\\s+(\d{4})$/);
+  m=s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
   if(m){const months=["january","february","march","april","may","june","july","august","september","october","november","december"];const idx=months.indexOf(m[2].toLowerCase());if(idx>=0) return `${m[3]}-${String(idx+1).padStart(2,"0")}-${m[1].padStart(2,"0")}`;}
   return null;
 }
