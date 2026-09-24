@@ -52,6 +52,32 @@ create trigger stock_field_restrictions before update on stock_transactions for 
 drop trigger if exists completion_field_restrictions on job_completions;
 create trigger completion_field_restrictions before update on job_completions for each row execute function public.enforce_field_restrictions();
 
+create or replace function public.enforce_task_field_restrictions() returns trigger language plpgsql security definer set search_path=public as $
+begin
+  if public.current_app_role()='Field Technician' then
+    if new.title is distinct from old.title
+       or new.description is distinct from old.description
+       or new.assigned_to is distinct from old.assigned_to
+       or new.created_by is distinct from old.created_by
+       or new.department is distinct from old.department
+       or new.priority is distinct from old.priority
+       or new.due_at is distinct from old.due_at
+       or new.task_id is distinct from old.task_id
+    then
+      raise exception 'Field Technician may only update task status';
+    end if;
+    if new.status='Completed' and old.status<>'Completed' then
+      if new.completed_at is null then new.completed_at:=now(); end if;
+    elsif new.status<>'Completed' then
+      new.completed_at:=null;
+    end if;
+  end if;
+  return new;
+end $;
+
+drop trigger if exists task_field_restrictions on tasks;
+create trigger task_field_restrictions before update on tasks for each row execute function public.enforce_task_field_restrictions();
+
 do $$ declare r record; begin for r in select policyname,tablename from pg_policies where schemaname='public' and tablename in ('profiles','clients','jobs','vehicles','job_completions','stock_transactions','miscellaneous_charges','tasks','task_comments','reminders','audit_logs','google_connections') loop execute format('drop policy if exists %I on %I',r.policyname,r.tablename); end loop; end $$;
 
 create policy profiles_select on profiles for select to authenticated using (true);
@@ -94,8 +120,8 @@ create policy tasks_insert on tasks for insert to authenticated with check (publ
 create policy tasks_update on tasks for update to authenticated using (public.is_super_admin() or assigned_to=auth.uid()) with check (public.is_super_admin() or assigned_to=auth.uid());
 create policy tasks_delete on tasks for delete to authenticated using (public.is_super_admin());
 
-create policy task_comments_select on task_comments for select to authenticated using (true);
-create policy task_comments_insert on task_comments for insert to authenticated with check (user_id=auth.uid() or public.is_super_admin());
+create policy task_comments_select on task_comments for select to authenticated using (public.is_super_admin() or public.current_app_role()='Viewer' or exists(select 1 from public.tasks t where t.id=task_comments.task_id and t.assigned_to=auth.uid()));
+create policy task_comments_insert on task_comments for insert to authenticated with check (public.is_super_admin() or (user_id=auth.uid() and public.current_app_role()='Field Technician' and exists(select 1 from public.tasks t where t.id=task_comments.task_id and t.assigned_to=auth.uid())));
 
 create policy reminders_select on reminders for select to authenticated using (user_id=auth.uid() or public.is_super_admin());
 create policy reminders_insert on reminders for insert to authenticated with check (public.is_super_admin());
