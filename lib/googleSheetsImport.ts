@@ -332,10 +332,14 @@ async function upsertClient(supabase:any,item:{name:string;code?:string;contact?
   return String(data.id);
 }
 async function clientLookup(supabase:any):Promise<Map<string,string>>{
-  const {data,error}=await supabase.from("clients").select("id,name");
-  if(error) throw error;
   const map=new Map<string,string>();
-  for(const x of data??[]){ if(x.name) map.set(norm(x.name),String(x.id)); }
+  const pageSize=1000;
+  for(let from=0;;from+=pageSize){
+    const {data,error}=await supabase.from("clients").select("id,name").range(from,from+pageSize-1);
+    if(error) throw error;
+    for(const x of data??[]){ if(x.name) map.set(norm(x.name),String(x.id)); }
+    if(!data || data.length<pageSize) break;
+  }
   return map;
 }
 async function ensureClient(supabase:any,map:Map<string,string>,name:string){
@@ -377,9 +381,8 @@ async function ensureClientsBatch(supabase:any,names:string[],existing:Map<strin
   const payload=missing.map(key=>({legacy_source_key:legacyClientKey(key),name:byNorm.get(key)||key}));
   const localErrors:string[]=[];
   await upsertChunks(supabase,"clients",payload,"legacy_source_key",localErrors,"Client creation");
-  const {data,error}=await supabase.from("clients").select("id,name");
-  if(error) throw error;
-  for(const x of data??[]){if(x.name) existing.set(norm(x.name),String(x.id));}
+  const refreshed=await clientLookup(supabase);
+  for(const [key,id] of refreshed) existing.set(key,id);
   if(localErrors.length) throw new Error(localErrors.join(" | "));
   return existing;
 }
