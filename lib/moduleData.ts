@@ -5,6 +5,7 @@ export type ClientRecord={id:string;clientCode:string;name:string;contactPerson:
 export type ChargeRecord={id:string;chargeId:string;client:string;clientId:string|null;location:string;logistics:number;accommodation:number;swap:number;deinstallation:number;reinstallation:number;healthCheck:number;simReplacement:number;others:number;status:string};
 export type StockRecord={id:string;deviceId:string;simId:string;dateIssued:string;dateInstalled:string;installer:string;client:string;location:string;network:string;deviceType:string;deviceStatus:string;dateCollected:string;operationsRemark:string;operationsCorrection:string;vehicleDetails:string;vehicleMake:string;otherIssues:string};
 export type CompletionRecord={id:string;jobId:string;jobUuid:string|null;deviceId:string;date:string;installer:string;location:string;client:string;vehicleDetails:string;vehicleMake:string;status:string;tssOfficer:string;remarks:string};
+export type VehicleRecord={id:string;registration:string;vehicleMake:string;vehicleDetails:string;status:string};
 export type WeeklyRecord={id:string;technician:string;technicianId:string;week:string;weekStart:string;projects:number;vehiclesCompleted:number;date:string;remarks:string};
 export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean};
 export type NotificationRecord={id:string;title:string;message:string;type:string;readAt:string|null;createdAt:string;relatedTaskId:string|null};
@@ -64,6 +65,27 @@ export async function loadCompletions():Promise<CompletionRecord[]>{
     tssOfficer:c.tss_officer??"",
     remarks:c.remarks??""
   }));
+}
+
+export async function loadVehicles(jobId:string):Promise<VehicleRecord[]>{
+  if(!supabase) return [];
+  const {data,error}=await supabase.from("vehicles").select("id,registration,vehicle_make,vehicle_details,status").eq("job_id",jobId).order("created_at",{ascending:true});
+  if(error) throw error;
+  return (data??[]).map(v=>({id:v.id,registration:v.registration??"",vehicleMake:v.vehicle_make??"",vehicleDetails:v.vehicle_details??"",status:v.status??"Pending"}));
+}
+
+export async function createVehicle(jobId:string,input:{registration?:string;vehicleMake?:string;vehicleDetails?:string;status?:string},role:Role){
+  if(!supabase) return null;
+  if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to add vehicle details.");
+  const {data,error}=await supabase.from("vehicles").insert({
+    job_id:jobId,
+    registration:input.registration?.trim()||null,
+    vehicle_make:input.vehicleMake?.trim()||null,
+    vehicle_details:input.vehicleDetails?.trim()||null,
+    status:input.status||"Pending"
+  }).select("id").single();
+  if(error) throw error;
+  return data.id as string;
 }
 
 export async function loadCharges():Promise<ChargeRecord[]>{
