@@ -686,8 +686,10 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
       // Some legacy tabs contain one-cell summary rows such as "DONE" under
       // the DEVICE ID column. They are not completion records.
       if(devicePlaceholder&&!installer&&!location&&!vehicleDetails&&!vehicleMake&&!clientName){summary.skipped++;continue;}
-      if(!deviceId&&!installer&&!location&&!vehicleDetails&&!vehicleMake){summary.skipped++;continue;}
-      if(!deviceId&&!clientName){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("dailyJobDone",sheet.title,i+1),device_id:deviceId||null,completion_date:parseDate(raw["DATE"],tabDate),installer:installer||null,location:location||null,client:clientName||null,vehicle_details:vehicleDetails||null,vehicle_make:vehicleMake||null,status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null});}}
+      // Daily Job Done represents individual device completions. A row without
+      // a Device ID is a summary/annotation row rather than a completion record.
+      if(!deviceId){summary.skipped++;continue;}
+      payloads.push({legacy_source_key:sourceKey("dailyJobDone",sheet.title,i+1),device_id:deviceId,completion_date:parseDate(raw["DATE"],tabDate),installer:installer||null,location:location||null,client:clientName||null,vehicle_details:vehicleDetails||null,vehicle_make:vehicleMake||null,status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null});}}
   summary.imported=await upsertChunks(supabase,"job_completions",payloads,"legacy_source_key",summary.errors,"Daily Job Done import");return summary;
 }
 
