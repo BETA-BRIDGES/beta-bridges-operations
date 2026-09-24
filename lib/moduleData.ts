@@ -17,31 +17,39 @@ type WeeklyProfileLookup={id:string;full_name:string|null};
 const safeDate=(value:string|null)=>value??"";
 const num=(value:number|null)=>Number(value??0);
 
+async function loadAllRows<T>(loader:(from:number,to:number)=>any):Promise<T[]>{
+  const out:T[]=[];
+  const pageSize=1000;
+  for(let from=0;;from+=pageSize){
+    const {data,error}=await loader(from,from+pageSize-1);
+    if(error) throw error;
+    out.push(...((data??[]) as T[]));
+    if(!data || data.length<pageSize) break;
+  }
+  return out;
+}
+
 export async function loadProfiles():Promise<UserRecord[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("profiles").select("id,full_name,email,role,active").order("full_name");
-  if(error) throw error;
-  return (data??[]).map(p=>({id:p.id,fullName:p.full_name,email:p.email,role:p.role as Role,active:p.active}));
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("profiles").select("id,full_name,email,role,active").order("full_name").range(from,to));
+  return data.map(p=>({id:p.id,fullName:p.full_name,email:p.email,role:p.role as Role,active:p.active}));
 }
 
 export async function loadClients():Promise<ClientRecord[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("clients").select("id,client_code,name,contact_person,phone,email,location,category,status,notes").order("name");
-  if(error) throw error;
-  return (data??[]).map(c=>({id:c.id,clientCode:c.client_code??"",name:c.name,contactPerson:c.contact_person??"",phone:c.phone??"",email:c.email??"",location:c.location??"",category:c.category??"",status:c.status??"",notes:c.notes??""}));
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("clients").select("id,client_code,name,contact_person,phone,email,location,category,status,notes").order("name").range(from,to));
+  return data.map(c=>({id:c.id,clientCode:c.client_code??"",name:c.name,contactPerson:c.contact_person??"",phone:c.phone??"",email:c.email??"",location:c.location??"",category:c.category??"",status:c.status??"",notes:c.notes??""}));
 }
 
 export async function loadStock():Promise<StockRecord[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("stock_transactions").select("id,device_id,sim_id,date_issued,date_installed,installer,client,location,network,device_type,device_status,date_collected,operations_remark,operations_correction,vehicle_details,vehicle_make,other_issues").order("date_installed",{ascending:false});
-  if(error) throw error;
-  return (data??[]).map(s=>({id:s.id,deviceId:s.device_id??"",simId:s.sim_id??"",dateIssued:safeDate(s.date_issued),dateInstalled:safeDate(s.date_installed),installer:s.installer??"",client:s.client??"",location:s.location??"",network:s.network??"",deviceType:s.device_type??"",deviceStatus:s.device_status??"",dateCollected:safeDate(s.date_collected),operationsRemark:s.operations_remark??"",operationsCorrection:s.operations_correction??"",vehicleDetails:s.vehicle_details??"",vehicleMake:s.vehicle_make??"",otherIssues:s.other_issues??""}));
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("stock_transactions").select("id,device_id,sim_id,date_issued,date_installed,installer,client,location,network,device_type,device_status,date_collected,operations_remark,operations_correction,vehicle_details,vehicle_make,other_issues").order("date_installed",{ascending:false}).range(from,to));
+  return data.map(s=>({id:s.id,deviceId:s.device_id??"",simId:s.sim_id??"",dateIssued:safeDate(s.date_issued),dateInstalled:safeDate(s.date_installed),installer:s.installer??"",client:s.client??"",location:s.location??"",network:s.network??"",deviceType:s.device_type??"",deviceStatus:s.device_status??"",dateCollected:safeDate(s.date_collected),operationsRemark:s.operations_remark??"",operationsCorrection:s.operations_correction??"",vehicleDetails:s.vehicle_details??"",vehicleMake:s.vehicle_make??"",otherIssues:s.other_issues??""}));
 }
 
 export async function loadCompletions():Promise<CompletionRecord[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("job_completions").select("id,job_id,device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer,remarks").order("completion_date",{ascending:false});
-  if(error) throw error;
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("job_completions").select("id,job_id,device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer,remarks").order("completion_date",{ascending:false}));
   const rows=(data??[]) as {id:string;job_id:string|null;device_id:string|null;completion_date:string|null;installer:string|null;location:string|null;client:string|null;vehicle_details:string|null;vehicle_make:string|null;status:string|null;tss_officer:string|null;remarks:string|null}[];
   const jobIds=Array.from(new Set(rows.map(c=>c.job_id).filter(Boolean))) as string[];
   const chunks=Array.from({length:Math.ceil(jobIds.length/100)},(_,i)=>jobIds.slice(i*100,(i+1)*100));
@@ -90,8 +98,7 @@ export async function createVehicle(jobId:string,input:{registration?:string;veh
 
 export async function loadCharges():Promise<ChargeRecord[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("miscellaneous_charges").select("id,charge_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved,client_id").order("created_at",{ascending:false});
-  if(error) throw error;
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("miscellaneous_charges").select("id,charge_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved,client_id").order("created_at",{ascending:false}));
   const rows=(data??[]);
   const ids=Array.from(new Set(rows.map(c=>c.client_id).filter(Boolean)));
   const {data:clients,error:clientError}=await (ids.length?supabase.from("clients").select("id,name").in("id",ids):Promise.resolve({data:[],error:null} as {data:ChargeClientLookup[];error:null}));
@@ -103,8 +110,7 @@ export async function loadCharges():Promise<ChargeRecord[]>{
 
 export async function loadWeekly():Promise<WeeklyRecord[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("technician_weekly_activity").select("id,technician_id,technician_name,week_start,projects_completed,vehicles_completed,remarks,updated_at").order("week_start",{ascending:false});
-  if(error) throw error;
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("technician_weekly_activity").select("id,technician_id,technician_name,week_start,projects_completed,vehicles_completed,remarks,updated_at").order("week_start",{ascending:false}));
   const ids=Array.from(new Set((data??[]).map(x=>x.technician_id).filter(Boolean)));
   const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:WeeklyProfileLookup[];error:null}));
   if(profileError) throw profileError;
@@ -122,8 +128,7 @@ export async function loadNotifications(userId:string):Promise<NotificationRecor
 
 export async function loadReminders(userId:string):Promise<ReminderRecord[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("reminders").select("id,title,details,user_id,remind_at,sent_at,created_at").order("remind_at",{ascending:true});
-  if(error) throw error;
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("reminders").select("id,title,details,user_id,remind_at,sent_at,created_at").order("remind_at",{ascending:true}));
   const rows=data??[];
   const ids=Array.from(new Set(rows.map(r=>r.user_id).filter(Boolean)));
   const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:{id:string;full_name:string|null}[];error:null}));
