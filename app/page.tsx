@@ -119,13 +119,19 @@ export default function Home(){
     const {data:{session}}=await supabase.auth.getSession();
     if(!session) throw new Error("Authentication required.");
     const response=await fetch(path,{method,headers:{authorization:`Bearer ${session.access_token}`}});
-    const body=await response.json().catch(()=>({}));
-    if(!response.ok) throw new Error(body.error||"Google Sheets request failed.");
+    const raw=await response.text();
+    let body:any={};
+    try{body=raw?JSON.parse(raw):{};}catch{}
+    if(!response.ok){
+      const detail=body?.error||raw?.trim()||`HTTP ${response.status} ${response.statusText}`;
+      throw new Error(`Google Sheets request failed (${response.status}): ${detail}`);
+    }
     return body;
   }
   async function loadGoogleStatus(){
-    if(role!=="Super Admin") return;
-    try{setGoogleStatus(await googleRequest("/api/google/status"));}catch(error){setGoogleMessage(error instanceof Error?error.message:"Unable to load Google Sheets status.")}
+    if(role!=="Super Admin") return false;
+    try{setGoogleStatus(await googleRequest("/api/google/status"));return true;}
+    catch(error){setGoogleMessage(error instanceof Error?error.message:"Unable to load Google Sheets status.");return false}
   }
   async function connectGoogle(){
     setGoogleBusy(true);setGoogleMessage("");
@@ -169,7 +175,7 @@ export default function Home(){
       const lines=results.map(r=>`${r.module}: ${r.imported} imported, ${r.skipped} skipped${r.errors?.length?", "+r.errors.length+" errors":""}`);
       setGoogleMessage("Legacy import completed. "+lines.join(" • "));
       await refresh();
-      await loadGoogleStatus();
+      try{await loadGoogleStatus();}catch{}
     }catch(error){
       setGoogleMessage(error instanceof Error?error.message:"Legacy Google Sheets import failed.");
     }finally{setGoogleBusy(false)}
