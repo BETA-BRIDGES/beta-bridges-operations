@@ -705,15 +705,17 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
   const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const workbook=await loadDriveWorkbook(client,spreadsheetId); const collisionSlugs=buildSheetCollisionSlugs(workbook); const collisionCleanupKeys:string[]=[]; const payloads:any[]=[]; const legacyYear=new Date().getFullYear();
   for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const deviceId=raw["DEVICE ID"]||"";const installer=raw["INSTALLER NAME"]||"";const location=raw["LOCATION"]||"";const vehicleDetails=raw["VEH DETAILS"]||raw["VEHICLE DETAILS"]||"";const vehicleMake=raw["VEH MAKE"]||"";const clientName=raw["NAME"]||"";
-      const devicePlaceholder=/^(DONE|COMPLETED|STATUS)$/i.test(deviceId.trim());
-      // These labels are worksheet summaries/placeholders, never physical
-      // tracker IDs. Skip them even when the row contains other annotations.
-      if(devicePlaceholder){summary.skipped++;continue;}
-      // Daily Job Done represents individual device completions. A row without
-      // a Device ID is a summary/annotation row rather than a completion record.
-      if(!deviceId){summary.skipped++;continue;}
+      const devicePlaceholder=/^(DONE|COMPLETED|STATUS|TOTAL)$/i.test(deviceId.trim());
+      const summaryText=/^\\d+\\s+JOBS?\\s+IMPLEMENTED$/i.test(clientName.trim())
+        || /^TOTAL(?:\\s+JOBS?|\\s+IMPLEMENTED)?$/i.test(clientName.trim());
+      const meaningfulFields=[installer,location,vehicleDetails,vehicleMake,clientName,raw["TSS OFFICER"]||""]
+        .some(value=>text(value) && !/^(DONE|COMPLETED|STATUS|TOTAL)$/i.test(text(value)));
+      // Skip worksheet summary/annotation rows. A missing Device ID alone is
+      // not enough to discard a real completion because some legacy rows have
+      // useful job data but no tracker ID recorded.
+      if(devicePlaceholder || summaryText || (!deviceId && !meaningfulFields)){summary.skipped++;continue;}
       if(collisionSlugs.has(slug(sheet.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobDone",sheet.title,i+1));
-      payloads.push({legacy_source_key:sourceKey("dailyJobDone",sheet.title,i+1,collisionSlugs),device_id:deviceId,completion_date:parseDate(raw["DATE"],tabDate),installer:installer||null,location:location||null,client:clientName||null,vehicle_details:vehicleDetails||null,vehicle_make:vehicleMake||null,status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null});}}
+      payloads.push({legacy_source_key:sourceKey("dailyJobDone",sheet.title,i+1,collisionSlugs),device_id:deviceId||null,completion_date:parseDate(raw["DATE"],tabDate),installer:installer||null,location:location||null,client:clientName||null,vehicle_details:vehicleDetails||null,vehicle_make:vehicleMake||null,status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null});}}
   summary.imported=await upsertChunks(supabase,"job_completions",payloads,"legacy_source_key",summary.errors,"Daily Job Done import");
   if(!summary.errors.length) await cleanupLegacyCollisionKeys(supabase,"job_completions",collisionCleanupKeys,summary.errors,"Daily Job Done import");
   return summary;
