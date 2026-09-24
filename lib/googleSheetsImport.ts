@@ -99,31 +99,33 @@ function parseDate(value: unknown, fallback?: string | null){
   const raw=text(value);
   if(!raw) return fallback ?? null;
 
-  // Google Drive exports legacy Excel dates as serial numbers in some
-  // worksheets. Do not pass a bare numeric serial to new Date(), because
-  // JavaScript can interpret it as an extreme year and PostgreSQL rejects it.
-  const serialMatch=raw.match(/^(\\d{4,6})(?:\\.0+)?$/);
+  // Excel/Sheets exports may serialize dates as numeric day counts
+  // (for example 45966 or 45966.0). Treat those as Excel serial dates
+  // instead of allowing JavaScript to parse them as years.
+  const serialMatch=raw.match(/^(\d{4,6})(?:\.0+)?$/);
   if(serialMatch){
     const serial=Number(serialMatch[1]);
     if(Number.isFinite(serial) && serial>=1 && serial<=100000){
       const excelEpoch=Date.UTC(1899,11,30);
-      const js=new Date(excelEpoch + serial*86400000);
+      const js=new Date(excelEpoch + Math.trunc(serial)*86400000);
       if(!Number.isNaN(js.getTime())) return js.toISOString().slice(0,10);
     }
   }
 
-  const iso=raw.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/);
-  if(iso) return `${iso[1]}-${iso[2].padStart(2,"0")}-${iso[3].padStart(2,"0")}`;
-  const dmy=raw.match(/^(\\d{1,2})[\\/.\\-](\\d{1,2})[\\/.\\-](\\d{4})$/);
-  if(dmy) return `${dmy[3]}-${dmy[2].padStart(2,"0")}-${dmy[1].padStart(2,"0")}`;
-  const named=raw.match(/^(\\d{1,2})\\s+([A-Za-z]+)\\s+(\\d{4})$/);
+  const iso=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if(iso) return iso[1]+"-"+iso[2].padStart(2,"0")+"-"+iso[3].padStart(2,"0");
+  const dmy=raw.match(/^(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{4})$/);
+  if(dmy) return dmy[3]+"-"+dmy[2].padStart(2,"0")+"-"+dmy[1].padStart(2,"0");
+  const named=raw.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
   if(named){
     const months=["january","february","march","april","may","june","july","august","september","october","november","december"];
     const idx=months.indexOf(named[2].toLowerCase());
-    if(idx>=0) return `${named[3]}-${String(idx+1).padStart(2,"0")}-${named[1].padStart(2,"0")}`;
+    if(idx>=0) return named[3]+"-"+String(idx+1).padStart(2,"0")+"-"+named[1].padStart(2,"0");
   }
   const js=new Date(raw);
-  if(!Number.isNaN(js.getTime())) return js.toISOString().slice(0,10);
+  if(!Number.isNaN(js.getTime()) && js.getUTCFullYear()>=1900 && js.getUTCFullYear()<=2200){
+    return js.toISOString().slice(0,10);
+  }
   return fallback ?? null;
 }
 function parseTime(value: unknown){
