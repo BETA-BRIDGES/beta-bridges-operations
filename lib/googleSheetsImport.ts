@@ -98,11 +98,25 @@ function slug(value: string){
 function parseDate(value: unknown, fallback?: string | null){
   const raw=text(value);
   if(!raw) return fallback ?? null;
-  const iso=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+
+  // Google Drive exports legacy Excel dates as serial numbers in some
+  // worksheets. Do not pass a bare numeric serial to new Date(), because
+  // JavaScript can interpret it as an extreme year and PostgreSQL rejects it.
+  const serialMatch=raw.match(/^(\\d{4,6})(?:\\.0+)?$/);
+  if(serialMatch){
+    const serial=Number(serialMatch[1]);
+    if(Number.isFinite(serial) && serial>=1 && serial<=100000){
+      const excelEpoch=Date.UTC(1899,11,30);
+      const js=new Date(excelEpoch + serial*86400000);
+      if(!Number.isNaN(js.getTime())) return js.toISOString().slice(0,10);
+    }
+  }
+
+  const iso=raw.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/);
   if(iso) return `${iso[1]}-${iso[2].padStart(2,"0")}-${iso[3].padStart(2,"0")}`;
-  const dmy=raw.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+  const dmy=raw.match(/^(\\d{1,2})[\\/.\\-](\\d{1,2})[\\/.\\-](\\d{4})$/);
   if(dmy) return `${dmy[3]}-${dmy[2].padStart(2,"0")}-${dmy[1].padStart(2,"0")}`;
-  const named=raw.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+  const named=raw.match(/^(\\d{1,2})\\s+([A-Za-z]+)\\s+(\\d{4})$/);
   if(named){
     const months=["january","february","march","april","may","june","july","august","september","october","november","december"];
     const idx=months.indexOf(named[2].toLowerCase());
