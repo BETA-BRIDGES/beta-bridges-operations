@@ -206,7 +206,7 @@ export async function previewGoogleSheets(userId:string){
 
         const sourceDates=Array.from(counts.keys());
         const years=new Set(sourceDates.map(x=>Number(x.slice(0,4))).filter(Number.isFinite));
-        const fallbackYear=years.size===1?[...years][0]:undefined;
+        const fallbackYear=years.size===1?Array.from(years)[0]:undefined;
         const dateTabs=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date);
         const tabByDate=new Map(dateTabs.map(x=>[x.date as string,x.title]));
         const mappings=Array.from(counts.entries()).sort(([a],[b])=>a.localeCompare(b))
