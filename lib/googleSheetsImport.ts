@@ -44,6 +44,29 @@ function normHeader(value: unknown){
     .replace(/^CLIENT LOCATION$/g,"LOCATION")
     .replace(/INSTALLER NAME/g,"INSTALLER NAME");
 }
+function parseLegacyTabDate(value: unknown, fallbackYear = new Date().getFullYear()){
+  const raw=text(value).toUpperCase().replace(/[,]/g," ").replace(/\s+/g," ").trim();
+  if(!raw) return null;
+  const months:Record<string,number>={
+    JAN:1,JANUARY:1,FEB:2,FEBRUARY:2,MAR:3,MARCH:3,APR:4,APRIL:4,MAY:5,
+    JUN:6,JUNE:6,JUL:7,JULY:7,AUG:8,AUGUST:8,SEP:9,SEPT:9,SEPTEMBER:9,
+    OCT:10,OCTOBER:10,NOV:11,NOVEMBER:11,DEC:12,DECEMBER:12
+  };
+  const ordinal=(s:string)=>Number(s.replace(/(ST|ND|RD|TH)$/,""));
+  let m=raw.match(/^(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)[\\s\\-_./]*(\\d{1,2}(?:ST|ND|RD|TH)?)$/);
+  if(m){
+    const month=months[m[1]];
+    const day=ordinal(m[2]);
+    if(month && day>=1 && day<=31) return fallbackYear+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+  }
+  m=raw.match(/^(\\d{1,2}(?:ST|ND|RD|TH)?)[\\s\\-_./]*(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)$/);
+  if(m){
+    const day=ordinal(m[1]);
+    const month=months[m[2]];
+    if(month && day>=1 && day<=31) return fallbackYear+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+  }
+  return null;
+}
 function isWeekLabel(value:unknown){
   const s=text(value).toUpperCase().replace(/\s+/g," ").trim();
   return /\bWEEK\s*[-:#.]?\s*[1-5]\b/.test(s)
@@ -598,10 +621,10 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
 }
 
 async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"dailyJobListing",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const workbook=await loadDriveWorkbook(client,spreadsheetId); const clients=await clientLookup(supabase);
+  const summary:ImportSummary={module:"dailyJobListing",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const workbook=await loadDriveWorkbook(client,spreadsheetId); const clients=await clientLookup(supabase); const legacyYear=new Date().getFullYear();
   const rawRows:{title:string;rowNumber:number;raw:Record<string,string>;fallbackDate:string|null}[]=[];
   const {data:profiles,error:pe}=await supabase.from("profiles").select("id,full_name"); if(pe)throw pe; const profileMap=new Map((profiles??[]).map((x:any)=>[norm(x.full_name),String(x.id)]));
-  for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing);if(!info)continue;summary.sheets++;const tabDate=parseDate(sheet.title);
+  for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["CLIENT NAMES"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw,fallbackDate:tabDate});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CLIENT NAMES"]),clients);
   const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber),job_id:"BB-LEGACY-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,legacy_client_name:x.raw["CLIENT NAMES"]||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
@@ -609,8 +632,8 @@ async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:strin
 }
 
 async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);if(!info)continue;summary.sheets++;const tabDate=parseDate(sheet.title);
+  const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[]; const legacyYear=new Date().getFullYear();
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const deviceId=raw["DEVICE ID"]||"";const installer=raw["INSTALLER NAME"]||"";const location=raw["LOCATION"]||"";const vehicleDetails=raw["VEH DETAILS"]||raw["VEHICLE DETAILS"]||"";const vehicleMake=raw["VEH MAKE"]||"";const clientName=raw["NAME"]||"";if(!deviceId&&!installer&&!location&&!vehicleDetails&&!vehicleMake){summary.skipped++;continue;}if(!deviceId&&!clientName){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("dailyJobDone",sheet.title,i+1),device_id:deviceId||null,completion_date:parseDate(raw["DATE"],tabDate),installer:installer||null,location:location||null,client:clientName||null,vehicle_details:vehicleDetails||null,vehicle_make:vehicleMake||null,status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null});}}
   summary.imported=await upsertChunks(supabase,"job_completions",payloads,"legacy_source_key",summary.errors,"Daily Job Done import");return summary;
 }
