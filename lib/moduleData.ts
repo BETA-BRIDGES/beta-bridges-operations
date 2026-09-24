@@ -178,8 +178,11 @@ export async function addCompletionRemark(id:string,remark:string,role:Role){
 }
 export async function createStock(input:Record<string,unknown>,role:Role){
   if(!supabase) return null;
-  if(role!=="Super Admin") throw new Error("Only Super Admin can create stock records.");
-  const {data,error}=await supabase.from("stock_transactions").insert(input).select("id").single();
+  if(!(role==="Super Admin"||role==="Finance")) throw new Error("You are not permitted to create Used Stock records.");
+  const payload=role==="Finance"
+    ? {device_id:input.device_id||null,sim_id:input.sim_id||null,date_issued:input.date_issued||null}
+    : input;
+  const {data,error}=await supabase.from("stock_transactions").insert(payload).select("id").single();
   if(error) throw error;
   return data.id as string;
 }
