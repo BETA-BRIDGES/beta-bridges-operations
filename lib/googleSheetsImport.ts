@@ -95,6 +95,16 @@ function numeric(value: unknown){
 function slug(value: string){
   return norm(value).replace(/[^A-Z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,80);
 }
+function stableHash(value:string){
+  let h=2166136261;
+  for(let i=0;i<value.length;i++){h^=value.charCodeAt(i);h=Math.imul(h,16777619);}
+  return (h>>>0).toString(36);
+}
+function buildSheetCollisionSlugs(sheets:{title:string}[]){
+  const counts=new Map<string,number>();
+  for(const sheet of sheets){const key=slug(sheet.title);counts.set(key,(counts.get(key)||0)+1);}
+  return new Set(Array.from(counts.entries()).filter(([,count])=>count>1).map(([key])=>key));
+}
 function parseDate(value: unknown, fallback?: string | null){
   const raw=text(value);
   if(!raw) return fallback ?? null;
@@ -389,7 +399,12 @@ function rowMap(headers:Row,row:Row){
   return out;
 }
 function legacyClientKey(name:string){return `client|legacy|${slug(name)}`;}
-function sourceKey(module:string,sheet:string,rowNumber:number){return `sheet|${module}|${slug(sheet)}|${rowNumber}`;}
+function legacySheetSourceKey(module:string,sheet:string,rowNumber:number){return `sheet|${module}|${slug(sheet)}|${rowNumber}`;}
+function sourceKey(module:string,sheet:string,rowNumber:number,collisionSlugs?:Set<string>){
+  const baseSlug=slug(sheet);
+  if(collisionSlugs?.has(baseSlug)) return `sheet|${module}|${baseSlug}|${stableHash(sheet)}|${rowNumber}`;
+  return legacySheetSourceKey(module,sheet,rowNumber);
+}
 
 async function upsertClient(supabase:any,item:{name:string;code?:string;contact?:string;category?:string;phone?:string;email?:string;location?:string},sourceKeyValue?:string){
   const name=text(item.name); if(!name) return null;
@@ -423,9 +438,7 @@ async function ensureClient(supabase:any,map:Map<string,string>,name:string){
 async function upsertChunks(
   supabase:any, table:string, rows:any[], onConflict:string, errors:string[], label:string, chunkSize=500
 ){
-  // PostgreSQL rejects an upsert batch when the same conflict key appears
-  // more than once in that single statement. Legacy workbooks repeat clients
-  // across monthly tabs, so collapse duplicate conflict keys before batching.
+  // Collapse duplicate conflict keys across the entire import, not just one batch.
   const unique=new Map<string,any>();
   const passthrough:any[]=[];
   for(const row of rows){
@@ -442,6 +455,14 @@ async function upsertChunks(
     else imported+=chunk.length;
   }
   return imported;
+}
+async function cleanupLegacyCollisionKeys(supabase:any,table:string,keys:string[],errors:string[],label:string){
+  const unique=Array.from(new Set(keys));
+  for(let start=0;start<unique.length;start+=500){
+    const chunk=unique.slice(start,start+500);
+    const {error}=await supabase.from(table).delete().in("legacy_source_key",chunk);
+    if(error) errors.push(label+" cleanup: "+error.message);
+  }
 }
 async function ensureClientsBatch(supabase:any,names:string[],existing:Map<string,string>){
   const missing=Array.from(new Set(names.map(norm).filter(Boolean))).filter(k=>!existing.has(k));
@@ -668,19 +689,21 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
 }
 
 async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"dailyJobListing",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const workbook=await loadDriveWorkbook(client,spreadsheetId); const clients=await clientLookup(supabase); const legacyYear=new Date().getFullYear();
+  const summary:ImportSummary={module:"dailyJobListing",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const workbook=await loadDriveWorkbook(client,spreadsheetId); const collisionSlugs=buildSheetCollisionSlugs(workbook); const collisionCleanupKeys:string[]=[]; const clients=await clientLookup(supabase); const legacyYear=new Date().getFullYear();
   const rawRows:{title:string;rowNumber:number;raw:Record<string,string>;fallbackDate:string|null}[]=[];
   const {data:profiles,error:pe}=await supabase.from("profiles").select("id,full_name"); if(pe)throw pe; const profileMap=new Map((profiles??[]).map((x:any)=>[norm(x.full_name),String(x.id)]));
   for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["CLIENT NAMES"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw,fallbackDate:tabDate});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CLIENT NAMES"]),clients);
-  const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber),job_id:"BB-LEGACY-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,legacy_client_name:x.raw["CLIENT NAMES"]||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
-  summary.imported=await upsertChunks(supabase,"jobs",payloads,"legacy_source_key",summary.errors,"Job import");return summary;
+  const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];if(collisionSlugs.has(slug(x.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobListing",x.title,x.rowNumber));return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber,collisionSlugs),job_id:"BB-LEGACY-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,legacy_client_name:x.raw["CLIENT NAMES"]||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
+  summary.imported=await upsertChunks(supabase,"jobs",payloads,"legacy_source_key",summary.errors,"Job import");
+  if(!summary.errors.length) await cleanupLegacyCollisionKeys(supabase,"jobs",collisionCleanupKeys,summary.errors,"Job import");
+  return summary;
 }
 
 async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[]; const legacyYear=new Date().getFullYear();
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
+  const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const workbook=await loadDriveWorkbook(client,spreadsheetId); const collisionSlugs=buildSheetCollisionSlugs(workbook); const collisionCleanupKeys:string[]=[]; const payloads:any[]=[]; const legacyYear=new Date().getFullYear();
+  for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const deviceId=raw["DEVICE ID"]||"";const installer=raw["INSTALLER NAME"]||"";const location=raw["LOCATION"]||"";const vehicleDetails=raw["VEH DETAILS"]||raw["VEHICLE DETAILS"]||"";const vehicleMake=raw["VEH MAKE"]||"";const clientName=raw["NAME"]||"";
       const devicePlaceholder=/^(DONE|COMPLETED|STATUS)$/i.test(deviceId.trim());
       // These labels are worksheet summaries/placeholders, never physical
@@ -689,8 +712,11 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
       // Daily Job Done represents individual device completions. A row without
       // a Device ID is a summary/annotation row rather than a completion record.
       if(!deviceId){summary.skipped++;continue;}
-      payloads.push({legacy_source_key:sourceKey("dailyJobDone",sheet.title,i+1),device_id:deviceId,completion_date:parseDate(raw["DATE"],tabDate),installer:installer||null,location:location||null,client:clientName||null,vehicle_details:vehicleDetails||null,vehicle_make:vehicleMake||null,status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null});}}
-  summary.imported=await upsertChunks(supabase,"job_completions",payloads,"legacy_source_key",summary.errors,"Daily Job Done import");return summary;
+      if(collisionSlugs.has(slug(sheet.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobDone",sheet.title,i+1));
+      payloads.push({legacy_source_key:sourceKey("dailyJobDone",sheet.title,i+1,collisionSlugs),device_id:deviceId,completion_date:parseDate(raw["DATE"],tabDate),installer:installer||null,location:location||null,client:clientName||null,vehicle_details:vehicleDetails||null,vehicle_make:vehicleMake||null,status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null});}}
+  summary.imported=await upsertChunks(supabase,"job_completions",payloads,"legacy_source_key",summary.errors,"Daily Job Done import");
+  if(!summary.errors.length) await cleanupLegacyCollisionKeys(supabase,"job_completions",collisionCleanupKeys,summary.errors,"Daily Job Done import");
+  return summary;
 }
 
 async function importStock(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
