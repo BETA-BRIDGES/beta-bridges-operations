@@ -80,7 +80,7 @@ create policy completions_update on job_completions for update to authenticated 
 create policy completions_delete on job_completions for delete to authenticated using (public.is_super_admin());
 
 create policy stock_select on stock_transactions for select to authenticated using (true);
-create policy stock_insert on stock_transactions for insert to authenticated with check (public.current_app_role() in ('Super Admin','Operations'));
+create policy stock_insert on stock_transactions for insert to authenticated with check (public.is_super_admin());
 create policy stock_update on stock_transactions for update to authenticated using (public.current_app_role() in ('Super Admin','Operations','Finance')) with check (public.current_app_role() in ('Super Admin','Operations','Finance'));
 create policy stock_delete on stock_transactions for delete to authenticated using (public.is_super_admin());
 
