@@ -276,7 +276,7 @@ export async function syncGoogleSheets(userId:string){
           const width=rows.reduce((max,row)=>Math.max(max,Array.isArray(row)?row.length:0),0);
           const range=`${quoteSheetTitle(sheet)}!A1:${col(width)}${rows.length}`;
           await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:quoteSheetTitle(sheet)});
-          await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows}});
+          await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows.map(row=>Array.from(row)) as any[][]}});
           await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
           results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};
           continue;
@@ -290,7 +290,7 @@ export async function syncGoogleSheets(userId:string){
           const width=rows.reduce((max,row)=>Math.max(max,Array.isArray(row)?row.length:0),0);
           const range=`${quoteSheetTitle(tab.title)}!A1:${col(width)}${rows.length}`;
           await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:quoteSheetTitle(tab.title)});
-          await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows}});
+          await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows.map(row=>Array.from(row)) as any[][]}});
           totalRows+=Math.max(0,rows.length-1);
         }
         await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
@@ -309,7 +309,7 @@ export async function syncGoogleSheets(userId:string){
       const width=rows.reduce((max,row)=>Math.max(max,Array.isArray(row)?row.length:0),0);
       const range=`${quoteSheetTitle(sheet)}!A1:${col(width)}${rows.length}`;
       await sheets.spreadsheets.values.clear({spreadsheetId:connection.spreadsheet_id,range:quoteSheetTitle(sheet)});
-      await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows}});
+      await sheets.spreadsheets.values.update({spreadsheetId:connection.spreadsheet_id,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows.map(row=>Array.from(row)) as any[][]}});
       await supabase.from("google_connections").update({last_sync_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq("module",connection.module);
       results[connection.module]={rows:Math.max(0,rows.length-1),ok:true};
     }catch(error){
