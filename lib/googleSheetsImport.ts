@@ -382,7 +382,7 @@ async function ensureClientsBatch(supabase:any,names:string[],existing:Map<strin
   const localErrors:string[]=[];
   await upsertChunks(supabase,"clients",payload,"legacy_source_key",localErrors,"Client creation");
   const refreshed=await clientLookup(supabase);
-  for(const [key,id] of refreshed) existing.set(key,id);
+  refreshed.forEach((id,key)=>existing.set(key,id));
   if(localErrors.length) throw new Error(localErrors.join(" | "));
   return existing;
 }
