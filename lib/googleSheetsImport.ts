@@ -683,9 +683,9 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const deviceId=raw["DEVICE ID"]||"";const installer=raw["INSTALLER NAME"]||"";const location=raw["LOCATION"]||"";const vehicleDetails=raw["VEH DETAILS"]||raw["VEHICLE DETAILS"]||"";const vehicleMake=raw["VEH MAKE"]||"";const clientName=raw["NAME"]||"";
       const devicePlaceholder=/^(DONE|COMPLETED|STATUS)$/i.test(deviceId.trim());
-      // Some legacy tabs contain one-cell summary rows such as "DONE" under
-      // the DEVICE ID column. They are not completion records.
-      if(devicePlaceholder&&!installer&&!location&&!vehicleDetails&&!vehicleMake&&!clientName){summary.skipped++;continue;}
+      // These labels are worksheet summaries/placeholders, never physical
+      // tracker IDs. Skip them even when the row contains other annotations.
+      if(devicePlaceholder){summary.skipped++;continue;}
       // Daily Job Done represents individual device completions. A row without
       // a Device ID is a summary/annotation row rather than a completion record.
       if(!deviceId){summary.skipped++;continue;}
