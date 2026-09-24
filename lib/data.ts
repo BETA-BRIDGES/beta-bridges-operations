@@ -14,12 +14,22 @@ function formatDate(value:string|null){
   if(!value) return "—";
   return new Date(`${value}T00:00:00`).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
 }
+async function loadAllRows<T>(loader:(from:number,to:number)=>any):Promise<T[]>{
+  const out:T[]=[];
+  const pageSize=1000;
+  for(let from=0;;from+=pageSize){
+    const {data,error}=await loader(from,from+pageSize-1);
+    if(error) throw error;
+    out.push(...((data??[]) as T[]));
+    if(!data || data.length<pageSize) break;
+  }
+  return out;
+}
+
 
 export async function loadJobs():Promise<AppJob[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,scheduled_time,assigned_technician_id,tss_officer_id,tss_officer_name,status,location").order("scheduled_date",{ascending:true});
-  if(error) throw error;
-  const rows=(data??[]) as JobLookupRow[];
+  const rows=await loadAllRows<JobLookupRow>((from,to)=>supabase!.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,scheduled_time,assigned_technician_id,tss_officer_id,tss_officer_name,status,location").order("scheduled_date",{ascending:true}).range(from,to));
   const clientIds=Array.from(new Set(rows.map(x=>x.client_id).filter(Boolean)));
   const techIds=Array.from(new Set(rows.map(x=>x.assigned_technician_id).filter(Boolean)));
   const officerIds=Array.from(new Set(rows.map(x=>x.tss_officer_id).filter(Boolean)));
@@ -45,9 +55,7 @@ export async function loadJobs():Promise<AppJob[]>{
 
 export async function loadTasks():Promise<AppTask[]>{
   if(!supabase) return [];
-  const {data,error}=await supabase.from("tasks").select("id,task_id,title,assigned_to,due_at,status").order("due_at",{ascending:true});
-  if(error) throw error;
-  const rows=(data??[]) as TaskLookupRow[];
+  const rows=await loadAllRows<TaskLookupRow>((from,to)=>supabase!.from("tasks").select("id,task_id,title,assigned_to,due_at,status").order("due_at",{ascending:true}).range(from,to));
   const ids=Array.from(new Set(rows.map(t=>t.assigned_to).filter(Boolean)));
   const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:TaskProfileLookup[];error:null}));
   if(profileError) throw profileError;
