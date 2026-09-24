@@ -75,6 +75,15 @@ export default function Home(){
       const {data,error}=await supabase!.from("profiles").select("id,full_name,email,role,active").eq("id",session.user.id).maybeSingle();
       if(!mounted) return;
       if(error){setProfileError(error.message);setAuthLoading(false);return}
+      if(!data){
+        setProfileError("Your account profile has not been created. Please contact a Super Admin.");
+        setAuthLoading(false);
+        return;
+      }
+      if(!(data as Profile).active){
+        router.replace("/pending");
+        return;
+      }
       setProfile(data as Profile);setAuthLoading(false);
     }
     load();
