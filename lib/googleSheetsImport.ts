@@ -136,7 +136,7 @@ function worksheetRows(worksheet:XLSX.WorkSheet){
   const range=XLSX.utils.decode_range(worksheet["!ref"]);
   const rows:Row[]=[];
   for(let r=range.s.r;r<=range.e.r;r++){
-    const row:Row[]=[];
+    const row:Row=[];
     for(let c=range.s.c;c<=range.e.c;c++){
       const cell=worksheet[XLSX.utils.encode_cell({r,c})] as XLSX.CellObject|undefined;
       if(!cell){row.push("");continue;}
