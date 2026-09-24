@@ -153,6 +153,23 @@ export async function createCompletion(input:{jobId?:string|null;deviceId:string
   if(error) throw error;
   return data.id as string;
 }
+export async function updateCompletion(id:string,input:{jobId?:string|null;deviceId?:string;date?:string|null;installer?:string;location?:string;client?:string;vehicleDetails?:string;vehicleMake?:string;tssOfficer?:string;remarks?:string},role:Role){
+  if(!supabase) return;
+  if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to edit a Daily Job Done record.");
+  const {error}=await supabase.from("job_completions").update({
+    job_id:input.jobId||null,
+    device_id:input.deviceId?.trim()||null,
+    completion_date:input.date||null,
+    installer:input.installer||null,
+    location:input.location||null,
+    client:input.client||null,
+    vehicle_details:input.vehicleDetails||null,
+    vehicle_make:input.vehicleMake||null,
+    tss_officer:input.tssOfficer||null,
+    remarks:input.remarks||null
+  }).eq("id",id);
+  if(error) throw error;
+}
 export async function addCompletionRemark(id:string,remark:string,role:Role){
   if(!supabase) return;
   if(!(role==="Super Admin"||role==="Operations")) throw new Error("You are not permitted to add a remark.");
