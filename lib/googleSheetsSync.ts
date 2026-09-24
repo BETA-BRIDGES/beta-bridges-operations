@@ -145,6 +145,70 @@ async function buildRows(module:string,supabase:any,dateKey?:string){
   throw new Error(`Unsupported Google Sheets module: ${module}`);
 }
 
+export async function previewGoogleSheets(userId:string){
+  const {supabase,client}=await getGoogleClientForUser(userId);
+  const sheets=google.sheets({version:"v4",auth:client});
+  const {data:connections,error}=await supabase.from("google_connections")
+    .select("module,spreadsheet_id,sheet_name,active")
+    .eq("active",true)
+    .eq("sync_direction","platform_to_sheet");
+  if(error) throw error;
+
+  const results:Record<string,any>={};
+  const dateFields:Record<string,{table:string;field:string}>={
+    dailyJobListing:{table:"jobs",field:"scheduled_date"},
+    dailyJobDone:{table:"job_completions",field:"completion_date"},
+    usedStock:{table:"stock_transactions",field:"date_installed"}
+  };
+
+  for(const connection of (connections??[]) as Connection[]){
+    try{
+      const tabs=await listSheets(sheets,connection.spreadsheet_id);
+      if(!tabs.length) throw new Error("Google spreadsheet has no accessible worksheets.");
+
+      if(dateFields[connection.module] && !connection.sheet_name){
+        const meta=dateFields[connection.module];
+        const {data:rows,error:rowError}=await supabase.from(meta.table).select(meta.field);
+        if(rowError) throw rowError;
+
+        const counts=new Map<string,number>();
+        for(const row of rows??[]){
+          const key=dateKeyFromValue((row as any)[meta.field]);
+          if(key) counts.set(key,(counts.get(key)||0)+1);
+        }
+
+        const dateTabs=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title)})).filter(x=>x.date);
+        const tabByDate=new Map(dateTabs.map(x=>[x.date as string,x.title]));
+        const mappings=Array.from(counts.entries()).sort(([a],[b])=>a.localeCompare(b))
+          .map(([date,count])=>({date,count,targetSheet:tabByDate.get(date)||null}));
+        const missingTargets=mappings.filter(x=>!x.targetSheet).map(x=>x.date);
+        const targetDates=new Set(mappings.map(x=>x.date));
+        const unusedDateTabs=dateTabs.filter(x=>x.date&&!targetDates.has(x.date)).map(x=>x.title);
+
+        results[connection.module]={
+          ok:true, mode:"date-tabs", sourceRows:Array.from(counts.values()).reduce((a,b)=>a+b,0),
+          matchedTabs:mappings.filter(x=>x.targetSheet).length,
+          missingTargets,
+          unusedDateTabs,
+          mappings:mappings.slice(0,120)
+        };
+        continue;
+      }
+
+      const targetSheet=connection.sheet_name||preferredSheet(connection.module,tabs);
+      if(!targetSheet) throw new Error("No target worksheet could be resolved.");
+      const rows=await buildRows(connection.module,supabase);
+      results[connection.module]={
+        ok:true, mode:"single-sheet", targetSheet, sourceRows:Math.max(0,rows.length-1)
+      };
+    }catch(error){
+      const raw=error instanceof Error?error.message:"Unknown sync preview error";
+      results[connection.module]={ok:false,error:raw};
+    }
+  }
+  return results;
+}
+
 export async function syncGoogleSheets(userId:string){
   const {supabase,client}=await getGoogleClientForUser(userId);
   const sheets=google.sheets({version:"v4",auth:client});
