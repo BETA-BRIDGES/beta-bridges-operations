@@ -29,14 +29,27 @@ function dateKeyFromValue(value:unknown){
   return d.toISOString().slice(0,10);
 }
 
-function parseSheetDate(title:string){
-  const s=title.trim();
+function parseSheetDate(title:string,fallbackYear?:number){
+  const s=title.trim().replace(/\s+/g," ");
+  const monthMap:Record<string,number>={
+    JAN:1,JANUARY:1,FEB:2,FEBRUARY:2,MAR:3,MARCH:3,APR:4,APRIL:4,MAY:5,
+    JUN:6,JUNE:6,JUL:7,JULY:7,AUG:8,AUGUST:8,SEP:9,SEPT:9,SEPTEMBER:9,
+    OCT:10,OCTOBER:10,NOV:11,NOVEMBER:11,DEC:12,DECEMBER:12
+  };
   let m=s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
-  if(m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  if(m) return \`${m[3]}-\${m[2]}.padStart(2,"0")}-\${m[1]}.padStart(2,"0")\`;
   m=s.match(/^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/);
-  if(m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  if(m) return \`${m[1]}-\${m[2]}.padStart(2,"0")}-\${m[3]}.padStart(2,"0")\`;
   m=s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
-  if(m){const months=["january","february","march","april","may","june","july","august","september","october","november","december"];const idx=months.indexOf(m[2].toLowerCase());if(idx>=0) return `${m[3]}-${String(idx+1).padStart(2,"0")}-${m[1].padStart(2,"0")}`;}
+  if(m){
+    const month=monthMap[m[2].toUpperCase()];
+    if(month) return \`${m[3]}-\${String(month).padStart(2,"0")}-\${m[1].padStart(2,"0")}\`;
+  }
+  m=s.match(/^([A-Za-z]+)[\s-]*(\d{1,2})(?:ST|ND|RD|TH)?$/i);
+  if(m){
+    const month=monthMap[m[1].toUpperCase()];
+    if(month && fallbackYear) return \`${fallbackYear}-\${String(month).padStart(2,"0")}-\${m[2].padStart(2,"0")}\`;
+  }
   return null;
 }
 
@@ -63,10 +76,10 @@ function preferredSheet(module:string,items:SheetMeta[]){
 
 async function buildRows(module:string,supabase:any,dateKey?:string){
   if(module==="dailyJobListing"){
-    let query=supabase.from("jobs").select("job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id").order("scheduled_date",{ascending:true});
-    if(dateKey) query=query.eq("scheduled_date",dateKey);
-    const {data,error}=await query;
-    if(error) throw error;
+    const data=await selectAllRows(supabase,"jobs","job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id",(q:any)=>{
+      if(dateKey) q=q.eq("scheduled_date",dateKey);
+      return q.order("scheduled_date",{ascending:true});
+    });
     const clientIds=Array.from(new Set((data??[]).map((x:any)=>x.client_id).filter(Boolean)));
     const officerIds=Array.from(new Set((data??[]).map((x:any)=>x.tss_officer_id).filter(Boolean)));
     const [{data:clients,error:ce},{data:officers,error:oe}]=await Promise.all([
@@ -82,17 +95,17 @@ async function buildRows(module:string,supabase:any,dateKey?:string){
     ])];
   }
   if(module==="dailyJobDone"){
-    let query=supabase.from("job_completions").select("device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer").order("completion_date",{ascending:false});
-    if(dateKey) query=query.eq("completion_date",dateKey);
-    const {data,error}=await query;
-    if(error) throw error;
+    const data=await selectAllRows(supabase,"job_completions","device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer",(q:any)=>{
+      if(dateKey) q=q.eq("completion_date",dateKey);
+      return q.order("completion_date",{ascending:false});
+    });
     return [headers.dailyJobDone,...(data??[]).map((x:any)=>[text(x.device_id),text(x.completion_date),text(x.installer),text(x.location),text(x.client),text(x.vehicle_details),text(x.vehicle_make),text(x.status),text(x.tss_officer)])];
   }
   if(module==="usedStock"){
-    let query=supabase.from("stock_transactions").select("network,device_type,device_status,device_id,sim_id,date_collected,operations_remark,operations_correction,date_issued,date_installed,installer,location,client,vehicle_details,vehicle_make,other_issues").order("date_installed",{ascending:false});
-    if(dateKey) query=query.eq("date_installed",dateKey);
-    const {data,error}=await query;
-    if(error) throw error;
+    const data=await selectAllRows(supabase,"stock_transactions","network,device_type,device_status,device_id,sim_id,date_collected,operations_remark,operations_correction,date_issued,date_installed,installer,location,client,vehicle_details,vehicle_make,other_issues",(q:any)=>{
+      if(dateKey) q=q.eq("date_installed",dateKey);
+      return q.order("date_installed",{ascending:false});
+    });
     return [headers.usedStock,...(data??[]).map((x:any)=>[
       text(x.network),text(x.device_type),text(x.device_status),text(x.device_id),text(x.sim_id),text(x.date_collected),
       text(x.operations_remark),text(x.operations_correction),text(x.date_issued),text(x.date_installed),text(x.installer),
@@ -100,8 +113,7 @@ async function buildRows(module:string,supabase:any,dateKey?:string){
     ])];
   }
   if(module==="miscellaneousCharges"){
-    const {data,error}=await supabase.from("miscellaneous_charges").select("charge_id,client_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved").order("created_at",{ascending:false});
-    if(error) throw error;
+    const data=await selectAllRows(supabase,"miscellaneous_charges","charge_id,client_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved",(q:any)=>q.order("created_at",{ascending:false}));
     const ids=Array.from(new Set((data??[]).map((x:any)=>x.client_id).filter(Boolean)));
     const {data:clients,error:ce}=ids.length?await supabase.from("clients").select("id,name").in("id",ids):{data:[],error:null};
     if(ce) throw ce;
@@ -112,8 +124,7 @@ async function buildRows(module:string,supabase:any,dateKey?:string){
     ])];
   }
   if(module==="clientData"){
-    const {data,error}=await supabase.from("clients").select("client_code,name,contact_person,category,phone,email,location").order("name");
-    if(error) throw error;
+    const data=await selectAllRows(supabase,"clients","client_code,name,contact_person,category,phone,email,location",(q:any)=>q.order("name"));
     return [headers.clientData,...(data??[]).map((x:any,i:number)=>[
       i+1,text(x.name),text(x.contact_person),text(x.category),text(x.phone),text(x.email),text(x.location)
     ])];
@@ -123,8 +134,7 @@ async function buildRows(module:string,supabase:any,dateKey?:string){
     const {data:profiles,error:pe}=await supabase.from("profiles").select("id,full_name").eq("role","Field Technician");
     if(pe) throw pe;
     const nameMap=new Map((profiles??[]).map((x:any)=>[x.id,text(x.full_name).toUpperCase()]));
-    const {data,error}=await supabase.from("technician_weekly_activity").select("technician_id,technician_name,week_start,projects_completed").order("week_start",{ascending:true});
-    if(error) throw error;
+    const data=await selectAllRows(supabase,"technician_weekly_activity","technician_id,technician_name,week_start,projects_completed",(q:any)=>q.order("week_start",{ascending:true}));
     const bucket=new Map<string,number>();
     for(const x of data??[]){
       const d=new Date(String(x.week_start)+"T00:00:00");
@@ -168,16 +178,17 @@ export async function previewGoogleSheets(userId:string){
 
       if(dateFields[connection.module] && !connection.sheet_name){
         const meta=dateFields[connection.module];
-        const {data:rows,error:rowError}=await supabase.from(meta.table).select(meta.field);
-        if(rowError) throw rowError;
-
+        const rows=await selectAllRows(supabase,meta.table,meta.field);
         const counts=new Map<string,number>();
         for(const row of rows??[]){
           const key=dateKeyFromValue((row as any)[meta.field]);
           if(key) counts.set(key,(counts.get(key)||0)+1);
         }
 
-        const dateTabs=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title)})).filter(x=>x.date);
+        const sourceDates=Array.from(counts.keys());
+        const years=new Set(sourceDates.map(x=>Number(x.slice(0,4))).filter(Number.isFinite));
+        const fallbackYear=years.size===1?[...years][0]:undefined;
+        const dateTabs=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date);
         const tabByDate=new Map(dateTabs.map(x=>[x.date as string,x.title]));
         const mappings=Array.from(counts.entries()).sort(([a],[b])=>a.localeCompare(b))
           .map(([date,count])=>({date,count,targetSheet:tabByDate.get(date)||null}));
@@ -229,10 +240,11 @@ export async function syncGoogleSheets(userId:string){
 
       if(dateModules.has(connection.module) && !connection.sheet_name){
         const meta=dateFields[connection.module];
-        const {data:dateRows,error:dateError}=await supabase.from(meta.table).select(meta.field).not(meta.field,"is",null);
-        if(dateError) throw dateError;
+        const dateRows=await selectAllRows(supabase,meta.table,meta.field,(q:any)=>q.not(meta.field,"is",null));
         const dataDates=Array.from(new Set((dateRows??[]).map((x:any)=>dateKeyFromValue(x[meta.field])).filter(Boolean))) as string[];
-        const dateTabs=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title)})).filter(x=>x.date);
+        const years=new Set(dataDates.map(x=>Number(x.slice(0,4))).filter(Number.isFinite));
+        const fallbackYear=years.size===1?[...years][0]:undefined;
+        const dateTabs=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date);
         if(!dateTabs.length){
           const sheet=preferredSheet(connection.module,tabs);
           if(!sheet) throw new Error("No target worksheet could be resolved.");
