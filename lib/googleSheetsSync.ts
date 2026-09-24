@@ -74,6 +74,25 @@ function preferredSheet(module:string,items:SheetMeta[]){
   return visible[0]?.title||null;
 }
 
+async function selectAllRows(
+  supabase:any,
+  table:string,
+  columns:string,
+  refine?:(query:any)=>any
+){
+  const pageSize=1000;
+  const all:any[]=[];
+  for(let from=0;;from+=pageSize){
+    let query=supabase.from(table).select(columns).range(from,from+pageSize-1);
+    if(refine) query=refine(query);
+    const {data,error}=await query;
+    if(error) throw error;
+    all.push(...(data??[]));
+    if(!data || data.length<pageSize) break;
+  }
+  return all;
+}
+
 async function buildRows(module:string,supabase:any,dateKey?:string){
   if(module==="dailyJobListing"){
     const data=await selectAllRows(supabase,"jobs","job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id",(q:any)=>{
