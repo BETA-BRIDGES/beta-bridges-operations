@@ -861,7 +861,7 @@ async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:str
 export async function previewLegacyGoogleSheets(userId:string){
   const {supabase,client}=await getGoogleClientForUser(userId);
   const drive=google.drive({version:"v3",auth:client});
-  const {data:connections,error}=await supabase.from("google_connections").select("module,spreadsheet_id,sheet_name,active").eq("active",true).eq("sync_direction","platform_to_sheet");
+  const {data:connections,error}=await supabase.from("google_connections").select("module,spreadsheet_id,sheet_name,active").eq("active",true).in("sync_direction",["platform_to_sheet","bidirectional"]);
   if(error) throw error;
   const results:any[]=[];
   for(const connection of (connections??[]) as any[]){
@@ -911,7 +911,7 @@ export async function importLegacyGoogleModule(userId:string,module:string){
   const {supabase}=await getGoogleClientForUser(userId);
   const {data:connection,error}=await supabase.from("google_connections")
     .select("module,spreadsheet_id,active,sync_direction")
-    .eq("module",module).eq("active",true).eq("sync_direction","platform_to_sheet").maybeSingle();
+    .eq("module",module).eq("active",true).in("sync_direction",["platform_to_sheet","bidirectional"]).maybeSingle();
   if(error) throw error;
   if(!connection?.spreadsheet_id) throw new Error("No active Google connection configured for "+module+".");
   const client=(await getGoogleClientForUser(userId)).client;
@@ -932,7 +932,7 @@ export async function importLegacyGoogleModule(userId:string,module:string){
 export async function importLegacyGoogleSheets(userId:string){
   const {supabase,client}=await getGoogleClientForUser(userId);
   const drive=google.drive({version:"v3",auth:client});
-  const {data:connections,error}=await supabase.from("google_connections").select("module,spreadsheet_id,sheet_name,active").eq("active",true).eq("sync_direction","platform_to_sheet");
+  const {data:connections,error}=await supabase.from("google_connections").select("module,spreadsheet_id,sheet_name,active").eq("active",true).in("sync_direction",["platform_to_sheet","bidirectional"]);
   if(error) throw error;
   const byModule=new Map((connections??[]).map((x:any)=>[x.module,x]));
   const order=["clientData","dailyJobListing","dailyJobDone","usedStock","miscellaneousCharges","techieWeeklyActivity"];
