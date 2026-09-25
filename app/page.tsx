@@ -581,7 +581,7 @@ export default function Home(){
         <section className="section two">
           <div className="card">
             <div className="section-head"><div><h3>14-day activity trend</h3><p className="muted">Scheduled vehicles compared with completed vehicle records and device-linked completion records.</p></div></div>
-            <div className="mini-bars">{reportTrend.map(row=><div className="mini-bar-row" key={row.key}><span>{row.label}</span><div className="mini-track"><i title={`Scheduled: ${row.vehicles}`} style={{width:`${Math.round((row.vehicles/maxTrend)*100)}%`}}/></div><strong>{row.vehicles}</strong><div className="mini-track secondary"><i title={`Completed: ${row.vehiclesCompleted}`} style={{width:`${Math.round((row.vehiclesCompleted/maxTrend)*100)}%`}}/></div><strong>{row.vehiclesCompleted}</strong></div>)}</div>
+            <div className="mini-bars">{reportTrend.map(row=><div className="mini-bar-row" key={row.key}><span>{row.label}</span><div className="mini-track"><i title={`Scheduled: ${row.vehicles}`} style={{width:`${Math.round((row.vehicles/maxTrend)*100)}%`}}/></div><strong>{row.vehicles}</strong><div className="mini-track secondary"><i title={`Completed: ${row.vehiclesCompleted}`} style={{width:`${Math.round((row.vehiclesCompleted/maxTrend)*100)}%`}}/></div><strong>{row.vehiclesCompleted}</strong><div className="mini-track tertiary"><i title={`Device-linked completions: ${row.completions}`} style={{width:`${Math.round((row.completions/maxTrend)*100)}%`}}/></div><strong>{row.completions}</strong></div>)}</div>
             <div className="trend-legend"><span>Scheduled</span><span>Completed vehicle records</span><span>Device-linked completions</span></div>
           </div>
 
@@ -602,7 +602,7 @@ export default function Home(){
             <div className="exception-list">
               <div><span>Completion records without DEVICE ID</span><strong>{reportExceptionCompletions.length}</strong></div>
               <div><span>Open legacy exceptions</span><strong>{dashboardOpenExceptions}</strong></div>
-              <div><span>Stock records without missing identifiers</span><strong>{stock.filter(s=>s.deviceId.trim()&&s.simId.trim()).length}</strong></div>
+              <div><span>Stock records with Device ID + SIM ID</span><strong>{stock.filter(s=>s.deviceId.trim()&&s.simId.trim()).length}</strong></div>
               <div><span>Installed stock records in window</span><strong>{reportInstalledStock}</strong></div>
             </div>
             <p className="muted" style={{marginTop:12}}>The completion exception count includes legacy summary rows that do not carry a physical Device ID.</p>
