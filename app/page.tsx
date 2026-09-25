@@ -86,7 +86,7 @@ export default function Home(){
   async function refresh(){
     if(!supabase) return;
     try{
-      const [j,t,c,s,d,mc,w,u,n,r]=await Promise.all([loadJobs(),loadTasks(),loadClients(),loadStock(),loadCompletions(),loadCharges(),loadWeekly(),loadProfiles(),profile?.id?loadNotifications(profile.id):Promise.resolve([]),profile?.id?loadReminders(profile.id):Promise.resolve([])]);
+      const [j,t,c,s,d,mc,w,u,n,r]=await Promise.all([loadJobs(profile?.role,profile?.id),loadTasks(),loadClients(),loadStock(),loadCompletions(),loadCharges(),loadWeekly(profile?.role,profile?.id),loadProfiles(),profile?.id?loadNotifications(profile.id):Promise.resolve([]),profile?.id?loadReminders(profile.id):Promise.resolve([])]);
       setJobs(j);setTasks(t);setClients(c);setStock(s);setCompletions(d);setCharges(mc);setWeekly(w);setUsers(u);setNotifications(n);setReminders(r);setProfileError("");
     }catch(error){setProfileError(error instanceof Error?error.message:"Unable to load operational data.")}
   }
