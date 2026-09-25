@@ -437,6 +437,17 @@ export default function Home(){
   const vehicleInProgress=managedVehicles.filter(v=>v.status==="In Progress").length;
   const vehicleCompleted=managedVehicles.filter(v=>v.status==="Completed").length;
   const filteredTasks=tasks.filter(t=>matches([t.taskKey,t.title,t.assignee,t.due,t.status,jobs.find(j=>j.id===t.relatedJobId)?.jobId]));
+  const dashboardJobs=visibleJobs;
+  const dashboardPending=dashboardJobs.filter(j=>j.status==="Pending").length;
+  const dashboardInProgress=dashboardJobs.filter(j=>j.status==="In Progress").length;
+  const dashboardCompleted=dashboardJobs.filter(j=>j.status==="Completed").length;
+  const dashboardUnassigned=dashboardJobs.filter(j=>!j.technicianId).length;
+  const dashboardVehiclesScheduled=dashboardJobs.reduce((n,j)=>n+j.vehicles,0);
+  const dashboardVehiclesCompleted=managedVehicles.filter(v=>v.status==="Completed").length;
+  const dashboardOpenTasks=tasks.filter(t=>!["Completed","Cancelled"].includes(t.status)).length;
+  const dashboardOpenExceptions=legacyExceptions.filter(x=>x.status==="Open").length;
+  const dashboardTechWorkload=technicians.map(t=>({id:t.id,name:t.fullName,activeJobs:technicianWorkload(t.id)})).sort((a,b)=>b.activeJobs-a.activeJobs);
+
 
   if(authLoading) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Loading Operations Portal</h1><p className="muted">Checking account and permissions…</p></section></main>;
   if(!hasSession) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Operations Portal</h1><p className="muted">Welcome to the Beta Bridges Operations Management Portal.</p><div className="section"><div className="card"><h3>Existing user</h3><p className="muted">Sign in with your Beta Bridges account.</p><a className="btn primary" href="/login">Login</a></div><div className="card" style={{marginTop:12}}><h3>New user</h3><p className="muted">Create an account and request an operational role.</p><a className="btn" href="/signup">Sign up</a></div></div></section></main>;
@@ -453,7 +464,21 @@ export default function Home(){
     <main className="main"><header className="topbar"><div><h1 className="page-title">{moduleLabel(module)}</h1><div className="muted">Central operations workspace</div></div><div className="topbar-actions">{supabase?<div className="user-chip"><strong>{profile?.full_name||profile?.email}</strong><span>{role}</span></div>:<select value={demoRole} onChange={e=>{setDemoRole(e.target.value as Role);setModule("Dashboard")}} className="role-select">{ROLES.map(r=><option key={r}>{r}</option>)}</select>}{supabase&&<button className="btn" onClick={signOut}>Sign out</button>}</div></header>
       {profileError&&<div className="login-error page-error">{profileError}</div>}
 
-      {module==="Dashboard"&&<><section className="grid"><div className="card"><div className="muted">Scheduled projects</div><div className="stat">{visibleJobs.length}</div></div><div className="card"><div className="muted">Vehicles scheduled</div><div className="stat">{visibleJobs.reduce((n,j)=>n+j.vehicles,0)}</div></div><div className="card"><div className="muted">Completed records</div><div className="stat">{completions.length}</div></div><div className="card"><div className="muted">Open tasks</div><div className="stat">{tasks.filter(t=>t.status!=="Completed").length}</div></div></section><section className="section two"><div className="card"><h3>Job queue</h3><Table headers={["Job ID","Client","Vehicles","Technician","Date","Status"]}>{jobs.slice(0,10).map(j=><tr key={j.id}><td>{j.jobId}</td><td>{j.client}</td><td>{j.vehicles}</td><td>{j.technician}</td><td>{j.date}</td><td>{j.status}</td></tr>)}</Table></div><div className="card"><h3>Open tasks</h3>{tasks.filter(t=>t.status!=="Completed").slice(0,8).map(t=><div className="task" key={t.id}><strong>{t.title}</strong><span>{t.assignee} · {t.due}</span><em>{t.status}</em></div>)}</div></section></>}
+      {module==="Dashboard"&&<><section className="grid">
+        <div className="card"><div className="muted">Scheduled projects</div><div className="stat">{dashboardJobs.length}</div></div>
+        <div className="card"><div className="muted">Vehicles scheduled</div><div className="stat">{dashboardVehiclesScheduled}</div></div>
+        <div className="card"><div className="muted">Pending projects</div><div className="stat">{dashboardPending}</div></div>
+        <div className="card"><div className="muted">In progress</div><div className="stat">{dashboardInProgress}</div></div>
+        <div className="card"><div className="muted">Completed projects</div><div className="stat">{dashboardCompleted}</div></div>
+        <div className="card"><div className="muted">Vehicles completed</div><div className="stat">{dashboardVehiclesCompleted}</div></div>
+        <div className="card"><div className="muted">Unassigned projects</div><div className="stat">{dashboardUnassigned}</div></div>
+        <div className="card"><div className="muted">Open tasks</div><div className="stat">{dashboardOpenTasks}</div></div>
+      </section>
+      {role==="Super Admin"&&dashboardOpenExceptions>0&&<section className="card"><div className="section-head"><div><h3>Legacy reconciliation</h3><p className="muted">Open legacy Daily Job Done exceptions requiring source review.</p></div><span className="badge warn">{dashboardOpenExceptions} Open</span></div></section>}
+      <section className="section two">
+        <div className="card"><div className="section-head"><div><h3>Job queue</h3><p className="muted">Upcoming and active projects.</p></div><span className="muted">{dashboardJobs.length} total</span></div><Table headers={["Job ID","Client","Vehicles","Technician","Date","Status"]}>{dashboardJobs.slice(0,12).map(j=><tr key={j.id}><td>{j.jobId}</td><td>{j.client}</td><td>{j.vehicles}</td><td>{j.technician}</td><td>{j.date}</td><td>{j.status}</td></tr>)}</Table></div>
+        <div className="card"><div className="section-head"><div><h3>Technician workload</h3><p className="muted">Active projects by Field Technician.</p></div></div><Table headers={["Technician","Active projects"]}>{dashboardTechWorkload.length?dashboardTechWorkload.map(t=><tr key={t.id}><td>{t.name}</td><td>{t.activeJobs}</td></tr>):<tr><td colSpan={2}>No active technicians.</td></tr>}</Table><h3 style={{marginTop:20}}>Open tasks</h3>{tasks.filter(t=>!["Completed","Cancelled"].includes(t.status)).slice(0,6).map(t=><div className="task" key={t.id}><strong>{t.title}</strong><span>{t.assignee} · {t.due}</span><em>{t.status}</em></div>)}</div>
+      </section></>}
 
       {module==="Daily Job Listing"&&<section>
         <section className="grid">
