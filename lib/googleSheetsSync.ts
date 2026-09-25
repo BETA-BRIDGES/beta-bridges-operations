@@ -180,7 +180,7 @@ export async function previewGoogleSheets(userId:string){
   const {data:connections,error}=await supabase.from("google_connections")
     .select("module,spreadsheet_id,sheet_name,active")
     .eq("active",true)
-    .eq("sync_direction","platform_to_sheet");
+    .in("sync_direction",["platform_to_sheet","bidirectional"]);
   if(error) throw error;
 
   const results:Record<string,any>={};
