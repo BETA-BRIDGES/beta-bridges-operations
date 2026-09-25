@@ -13,7 +13,7 @@ export const permissions:Record<string,Record<Role,string[]>>={
 
 const fieldRules:Record<string,Partial<Record<Role,{editable?:string[];readonly?:string[]}>>>={
   "Daily Job Listing":{"TSS Officer":{editable:["Job ID","NUMBER OF JOBS","Client","Date","TSS Officer","Status","Location","Vehicle Make","Priority","Description","Notes"],readonly:["Techie Assigned"]}},
-  "Used Stock":{"Operations":{editable:["Network","Device Type","Device Status","Date Collected","Operations Remark","Operations Correction","Date Installed","Installer","Location","Client","Vehicle Details","Vehicle Make","Other Issues"],readonly:["Device ID","SIM ID","Date Issued"]},Finance:{editable:["Device ID","SIM ID","Date Issued"]}}
+  "Used Stock":{"Operations":{editable:["Network","Device Type","Device Status","Date Collected","Operations Remark","Operations Correction","Date Installed","Installer","Location","Client","Vehicle Details","Vehicle Make","Other Issues","Job ID","Vehicle"],readonly:["Device ID","SIM ID","Date Issued"]},Finance:{editable:["Device ID","SIM ID","Date Issued"]}}
 };
 
 export function can(role:Role,module:string,action:string){
