@@ -27,9 +27,9 @@ async function loadAllRows<T>(loader:(from:number,to:number)=>any):Promise<T[]>{
 }
 
 
-export async function loadJobs():Promise<AppJob[]>{
+export async function loadJobs(role?:Role,userId?:string):Promise<AppJob[]>{
   if(!supabase) return [];
-  const rows=await loadAllRows<JobLookupRow>((from,to)=>supabase!.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,scheduled_time,assigned_technician_id,tss_officer_id,tss_officer_name,status,location").order("scheduled_date",{ascending:true}).range(from,to));
+  const rows=await loadAllRows<JobLookupRow>((from,to)=>{\n    let query=supabase!.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,scheduled_time,assigned_technician_id,tss_officer_id,tss_officer_name,status,location").order("scheduled_date",{ascending:true}).range(from,to);\n    if(role==="Field Technician" && userId) query=query.eq("assigned_technician_id",userId);\n    return query;\n  });
   const clientIds=Array.from(new Set(rows.map(x=>x.client_id).filter(Boolean)));
   const techIds=Array.from(new Set(rows.map(x=>x.assigned_technician_id).filter(Boolean)));
   const officerIds=Array.from(new Set(rows.map(x=>x.tss_officer_id).filter(Boolean)));
