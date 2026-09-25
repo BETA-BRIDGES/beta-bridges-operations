@@ -7,7 +7,7 @@ export type StockRecord={id:string;deviceId:string;simId:string;dateIssued:strin
 export type CompletionRecord={id:string;jobId:string;jobUuid:string|null;deviceId:string;date:string;installer:string;location:string;client:string;vehicleDetails:string;vehicleMake:string;status:string;tssOfficer:string;remarks:string};
 export type VehicleRecord={id:string;registration:string;vehicleMake:string;vehicleDetails:string;status:string};
 export type WeeklyRecord={id:string;technician:string;technicianId:string;week:string;weekStart:string;projects:number;vehiclesCompleted:number;date:string;remarks:string};
-export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean};
+export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean;moduleAccess:string[]|null};
 export type NotificationRecord={id:string;title:string;message:string;type:string;readAt:string|null;createdAt:string;relatedTaskId:string|null};
 export type ReminderRecord={id:string;title:string;details:string;userId:string|null;user:string;remindAt:string;sentAt:string|null;createdAt:string};
 
@@ -31,8 +31,8 @@ async function loadAllRows<T>(loader:(from:number,to:number)=>any):Promise<T[]>{
 
 export async function loadProfiles():Promise<UserRecord[]>{
   if(!supabase) return [];
-  const data=await loadAllRows<any>((from,to)=>supabase!.from("profiles").select("id,full_name,email,role,active").order("full_name").range(from,to));
-  return data.map(p=>({id:p.id,fullName:p.full_name,email:p.email,role:p.role as Role,active:p.active}));
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("profiles").select("id,full_name,email,role,active,module_access").order("full_name").range(from,to));
+  return data.map(p=>({id:p.id,fullName:p.full_name,email:p.email,role:p.role as Role,active:p.active,moduleAccess:(p.module_access??null) as string[]|null}));
 }
 
 export async function loadClients():Promise<ClientRecord[]>{
@@ -163,10 +163,14 @@ export async function createClient(input:{name:string;contactPerson?:string;phon
   if(error) throw error;
   return data.id as string;
 }
-export async function updateUserProfile(id:string,input:{role?:Role;active?:boolean},role:Role){
+export async function updateUserProfile(id:string,input:{role?:Role;active?:boolean;moduleAccess?:string[]|null},role:Role){
   if(!supabase) return;
   if(role!=="Super Admin") throw new Error("Only Super Admin can edit user permissions.");
-  const {error}=await supabase.from("profiles").update(input).eq("id",id);
+  const payload:Record<string,unknown>={};
+  if(input.role!==undefined) payload.role=input.role;
+  if(input.active!==undefined) payload.active=input.active;
+  if("moduleAccess" in input) payload.module_access=input.moduleAccess??null;
+  const {error}=await supabase.from("profiles").update(payload).eq("id",id);
   if(error) throw error;
 }
 export async function updateClient(id:string,input:Record<string,unknown>,role:Role){
