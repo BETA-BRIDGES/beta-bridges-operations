@@ -196,19 +196,42 @@ export default function Home(){
   },[modal,form.vehicleId,workflowVehicles]);
 
   async function signOut(){if(supabase) await supabase.auth.signOut();else setModule("Dashboard")}
-  async function googleRequest(path:string,method:"GET"|"POST"="GET"){
+  async function getGoogleSession(){
     if(!supabase) throw new Error("Supabase is not configured.");
-    const {data:{session}}=await supabase.auth.getSession();
-    if(!session) throw new Error("Authentication required.");
-    const response=await fetch(path,{method,headers:{authorization:`Bearer ${session.access_token}`}});
-    const raw=await response.text();
-    let body:any={};
-    try{body=raw?JSON.parse(raw):{};}catch{}
-    if(!response.ok){
+    const current=await supabase.auth.getSession();
+    if(current.error) throw current.error;
+    if(current.data.session) return current.data.session;
+    const refreshed=await supabase.auth.refreshSession();
+    if(refreshed.error||!refreshed.data.session) throw new Error("Authentication required.");
+    return refreshed.data.session;
+  }
+  async function googleRequest(path:string,method:"GET"|"POST"="GET",bodyPayload?:unknown){
+    if(!supabase) throw new Error("Supabase is not configured.");
+    let session=await getGoogleSession();
+    for(let attempt=0;attempt<2;attempt++){
+      const response=await fetch(path,{
+        method,
+        headers:{
+          authorization:`Bearer ${session.access_token}`,
+          ...(bodyPayload!==undefined?{"content-type":"application/json"}:{})
+        },
+        ...(bodyPayload!==undefined?{body:JSON.stringify(bodyPayload)}:{})
+      });
+      const raw=await response.text();
+      let body:any={};
+      try{body=raw?JSON.parse(raw):{};}catch{}
+      if(response.ok) return body;
       const detail=body?.error||raw?.trim()||`HTTP ${response.status} ${response.statusText}`;
+      if(attempt===0 && /invalid authentication token/i.test(String(detail))){
+        session=await supabase.auth.refreshSession().then(result=>{
+          if(result.error||!result.data.session) throw new Error("Your login session has expired. Please sign in again.");
+          return result.data.session;
+        });
+        continue;
+      }
       throw new Error(`Google Sheets request failed (${response.status}): ${detail}`);
     }
-    return body;
+    throw new Error("Google Sheets request failed.");
   }
   async function loadGoogleStatus(){
     if(role!=="Super Admin") return false;
@@ -241,15 +264,7 @@ export default function Home(){
     try{
       for(const moduleName of modules){
         setGoogleMessage("Importing "+labels[moduleName]+"…");
-        const {data:{session}}=await supabase!.auth.getSession();
-        if(!session) throw new Error("Authentication required.");
-        const response=await fetch("/api/google/import",{
-          method:"POST",
-          headers:{authorization:`Bearer ${session.access_token}`,"content-type":"application/json"},
-          body:JSON.stringify({module:moduleName})
-        });
-        const body=await response.json().catch(()=>({}));
-        if(!response.ok) throw new Error(body.error||`Legacy import failed for ${labels[moduleName]}.`);
+        const body=await googleRequest("/api/google/import","POST",{module:moduleName});
         const result=body.results?.[0];
         results.push(result);
         if(result?.errors?.length) setGoogleMessage(labels[moduleName]+": imported "+result.imported+", skipped "+result.skipped+", with "+result.errors.length+" errors.");
