@@ -90,8 +90,8 @@ export default function Home(){
   async function refresh(){
     if(!supabase) return;
     try{
-      const [j,t,c,s,d,mc,w,u,n,r]=await Promise.all([loadJobs(profile?.role,profile?.id),loadTasks(),loadClients(),loadStock(),loadCompletions(),loadCharges(),loadWeekly(profile?.role,profile?.id),loadProfiles(),profile?.id?loadNotifications(profile.id):Promise.resolve([]),profile?.id?loadReminders(profile.id):Promise.resolve([])]);
-      setJobs(j);setTasks(t);setClients(c);setStock(s);setCompletions(d);setCharges(mc);setWeekly(w);setUsers(u);setNotifications(n);setReminders(r);setProfileError("");
+      const [j,t,c,s,d,mc,w,u,n,r,v]=await Promise.all([loadJobs(profile?.role,profile?.id),loadTasks(),loadClients(),loadStock(),loadCompletions(),loadCharges(),loadWeekly(profile?.role,profile?.id),loadProfiles(),profile?.id?loadNotifications(profile.id):Promise.resolve([]),profile?.id?loadReminders(profile.id):Promise.resolve([]),loadVehicleManagement()]);
+      setJobs(j);setTasks(t);setClients(c);setStock(s);setCompletions(d);setCharges(mc);setWeekly(w);setUsers(u);setNotifications(n);setReminders(r);setManagedVehicles(v);setProfileError("");
     }catch(error){setProfileError(error instanceof Error?error.message:"Unable to load operational data.")}
   }
 
@@ -392,6 +392,10 @@ export default function Home(){
   const filteredWeekly=visibleWeekly.filter(w=>matches([w.technician,w.week,w.projects,w.vehiclesCompleted,w.date,w.remarks]));
   const filteredCharges=charges.filter(ch=>matches([ch.chargeId,ch.client,ch.location,ch.logistics,ch.accommodation,ch.swap,ch.simReplacement,ch.others,ch.status]));
   const filteredClients=clients.filter(cl=>matches([cl.name,cl.clientCode,cl.contactPerson,cl.phone,cl.email,cl.location,cl.category,cl.status]));
+  const filteredVehicles=managedVehicles.filter(v=>matches([v.jobKey,v.client,v.registration,v.vehicleMake,v.vehicleDetails,v.status,v.technician,v.scheduledDate]));
+  const vehiclePending=managedVehicles.filter(v=>v.status==="Pending").length;
+  const vehicleInProgress=managedVehicles.filter(v=>v.status==="In Progress").length;
+  const vehicleCompleted=managedVehicles.filter(v=>v.status==="Completed").length;
   const filteredTasks=tasks.filter(t=>matches([t.taskKey,t.title,t.assignee,t.due,t.status,jobs.find(j=>j.id===t.relatedJobId)?.jobId]));
 
   if(authLoading) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Loading Operations Portal</h1><p className="muted">Checking account and permissions…</p></section></main>;
