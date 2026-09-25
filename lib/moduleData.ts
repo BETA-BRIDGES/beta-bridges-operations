@@ -296,7 +296,14 @@ export async function updateUserProfile(id:string,input:{role?:Role;active?:bool
   const payload:Record<string,unknown>={};
   if(input.role!==undefined) payload.role=input.role;
   if(input.active!==undefined) payload.active=input.active;
-  if("moduleAccess" in input) payload.module_access=input.moduleAccess??null;
+
+  const effectiveRole=input.role;
+  if("moduleAccess" in input || effectiveRole!==undefined){
+    // Only Viewer uses a module override. Role-driven users stay canonical
+    // with NULL module_access so role permissions remain the source of truth.
+    payload.module_access=effectiveRole==="Viewer" ? (input.moduleAccess??null) : null;
+  }
+
   const {error}=await supabase.from("profiles").update(payload).eq("id",id);
   if(error) throw error;
 }
