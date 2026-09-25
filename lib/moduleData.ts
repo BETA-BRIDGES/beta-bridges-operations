@@ -10,6 +10,7 @@ export type WeeklyRecord={id:string;technician:string;technicianId:string;week:s
 export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean;moduleAccess:string[]|null};
 export type NotificationRecord={id:string;title:string;message:string;type:string;readAt:string|null;createdAt:string;relatedTaskId:string|null};
 export type ReminderRecord={id:string;title:string;details:string;userId:string|null;user:string;remindAt:string;sentAt:string|null;createdAt:string};
+export type AuditLogRecord={id:string;actor:string;actorId:string|null;action:string;module:string;recordId:string;details:any;createdAt:string};
 export type LegacyDeviceExceptionRecord={id:string;sourceSheet:string;sourceRowNumber:number;sourceKey:string;exceptionType:string;status:string;deviceId:string;date:string;installer:string;location:string;client:string;vehicleDetails:string;vehicleMake:string;legacyStatus:string;tssOfficer:string;resolutionNote:string};
 
 type ChargeClientLookup={id:string;name:string|null};
@@ -28,6 +29,32 @@ async function loadAllRows<T>(loader:(from:number,to:number)=>any):Promise<T[]>{
     if(!data || data.length<pageSize) break;
   }
   return out;
+}
+
+export async function loadAuditLogs(limit=100):Promise<AuditLogRecord[]>{
+  if(!supabase) return [];
+  const {data,error}=await supabase
+    .from("audit_logs")
+    .select("id,actor_id,action,module,record_id,details,created_at")
+    .order("created_at",{ascending:false})
+    .limit(limit);
+  if(error) throw error;
+  const ids=Array.from(new Set((data??[]).map((x:any)=>x.actor_id).filter(Boolean)));
+  const {data:profiles,error:profileError}=await (ids.length
+    ? supabase.from("profiles").select("id,full_name").in("id",ids)
+    : Promise.resolve({data:[],error:null} as {data:{id:string;full_name:string|null}[];error:null}));
+  if(profileError) throw profileError;
+  const map=new Map<string,string>((profiles??[]).map((p:any)=>[String(p.id),String(p.full_name??"User")]));
+  return (data??[]).map((x:any)=>({
+    id:String(x.id),
+    actor:map.get(String(x.actor_id))||"System",
+    actorId:x.actor_id?String(x.actor_id):null,
+    action:String(x.action??""),
+    module:String(x.module??""),
+    recordId:String(x.record_id??""),
+    details:x.details??{},
+    createdAt:new Date(x.created_at).toLocaleString("en-GB")
+  }));
 }
 
 export async function loadProfiles():Promise<UserRecord[]>{
