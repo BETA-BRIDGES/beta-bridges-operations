@@ -32,7 +32,15 @@ export default function SignupPage(){
       options:{data:{full_name:fullName.trim(),role}}
     });
     setBusy(false);
-    if(error){setError(error.message);return;}
+    if(error){
+      const message=error.message||"Unable to create account.";
+      if(/email rate limit exceeded|too many emails|over_email_send_rate_limit/i.test(message)){
+        setError("Supabase has temporarily rate-limited authentication emails. A Super Admin can create the technician account from Administration → Create technician without sending a confirmation email, or you can configure custom SMTP in Supabase.");
+      }else{
+        setError(message);
+      }
+      return;
+    }
     if(data.session){
       router.replace("/pending");
       return;
