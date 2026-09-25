@@ -8,7 +8,7 @@ AS $$
 DECLARE r public.reminders%ROWTYPE; delivered integer := 0;
 BEGIN
   IF auth.uid() IS NULL THEN RETURN 0; END IF;
-  FOR r IN SELECT * FROM public.reminders WHERE r.user_id=auth.uid() AND r.sent_at IS NULL AND r.remind_at<=now() ORDER BY r.remind_at FOR UPDATE SKIP LOCKED LOOP
+  FOR r IN SELECT rr.* FROM public.reminders AS rr WHERE rr.user_id=auth.uid() AND rr.sent_at IS NULL AND rr.remind_at<=now() ORDER BY rr.remind_at FOR UPDATE SKIP LOCKED LOOP
     INSERT INTO public.notifications(user_id,title,message,notification_type,related_task_id)
     VALUES(r.user_id,'Reminder: '||r.title,COALESCE(NULLIF(r.details,''),'Scheduled reminder'),'reminder',NULL);
     UPDATE public.reminders SET sent_at=now() WHERE id=r.id AND sent_at IS NULL;
