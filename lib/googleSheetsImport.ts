@@ -702,22 +702,73 @@ async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:strin
 }
 
 async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
-  const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const workbook=await loadDriveWorkbook(client,spreadsheetId); const collisionSlugs=buildSheetCollisionSlugs(workbook); const collisionCleanupKeys:string[]=[]; const payloads:any[]=[]; const legacyYear=new Date().getFullYear();
-  for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
-    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const deviceId=raw["DEVICE ID"]||"";const installer=raw["INSTALLER NAME"]||"";const location=raw["LOCATION"]||"";const vehicleDetails=raw["VEH DETAILS"]||raw["VEHICLE DETAILS"]||"";const vehicleMake=raw["VEH MAKE"]||"";const clientName=raw["NAME"]||"";
-      const devicePlaceholder=/^(DONE|COMPLETED|STATUS|TOTAL)$/i.test(deviceId.trim());
-      const summaryText=/^\\d+\\s+JOBS?\\s+IMPLEMENTED$/i.test(clientName.trim())
-        || /^TOTAL(?:\\s+JOBS?|\\s+IMPLEMENTED)?$/i.test(clientName.trim());
-      const meaningfulFields=[installer,location,vehicleDetails,vehicleMake,clientName,raw["TSS OFFICER"]||""]
-        .some(value=>text(value) && !/^(DONE|COMPLETED|STATUS|TOTAL)$/i.test(text(value)));
-      // Skip worksheet summary/annotation rows. A missing Device ID alone is
-      // not enough to discard a real completion because some legacy rows have
-      // useful job data but no tracker ID recorded.
-      if(devicePlaceholder || summaryText || (!deviceId && !meaningfulFields)){summary.skipped++;continue;}
-      if(collisionSlugs.has(slug(sheet.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobDone",sheet.title,i+1));
-      payloads.push({legacy_source_key:sourceKey("dailyJobDone",sheet.title,i+1,collisionSlugs),device_id:deviceId||null,completion_date:parseDate(raw["DATE"],tabDate),installer:installer||null,location:location||null,client:clientName||null,vehicle_details:vehicleDetails||null,vehicle_make:vehicleMake||null,status:raw["STATUS"]||"Completed",tss_officer:raw["TSS OFFICER"]||null});}}
+  const summary:ImportSummary={module:"dailyJobDone",sheets:0,rows:0,imported:0,skipped:0,exceptions:0,errors:[]};
+  const payloads:any[]=[];
+  const exceptions:any[]=[];
+
+  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
+    const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);
+    if(!info) continue;
+    summary.sheets++;
+    const tabDate=parseDate(sheet.title);
+
+    for(let i=info.index+1;i<sheet.rows.length;i++){
+      summary.rows++;
+      const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);
+      const source=sourceKey("dailyJobDone",sheet.title,i+1);
+
+      if(!raw["DEVICE ID"] && !raw["NAME"]){
+        summary.skipped++;
+        continue;
+      }
+
+      if(!raw["DEVICE ID"]){
+        const sourceText=[raw["NAME"],raw["INSTALLER NAME"],raw["LOCATION"],raw["VEH DETAILS"],raw["VEH MAKE"],raw["STATUS"]]
+          .filter(Boolean).join(" ");
+        const summaryRow=/\b(?:JOB|JOBS|JBS)\b.*\b(?:IMPLEMENT|IMPEL|IMLEM)/i.test(sourceText);
+        const noteRow=/APPEARED ON|CLIENT NAME MISSING/i.test(sourceText);
+        exceptions.push({
+          module:"dailyJobDone",
+          legacy_source_key:source,
+          source_sheet:sheet.title,
+          source_row_number:i+1,
+          exception_type:summaryRow?"SUMMARY_ROW":noteRow?"NOTE_ROW":"MISSING_DEVICE_ID",
+          status:summaryRow||noteRow?"Ignored":"Open",
+          device_id:null,
+          completion_date:parseDate(raw["DATE"],tabDate),
+          installer:raw["INSTALLER NAME"]||null,
+          location:raw["LOCATION"]||null,
+          client:raw["NAME"]||null,
+          vehicle_details:raw["VEH DETAILS"]||raw["VEHICLE DETAILS"]||null,
+          vehicle_make:raw["VEH MAKE"]||null,
+          legacy_status:raw["STATUS"]||null,
+          tss_officer:raw["TSS OFFICER"]||null,
+          source_payload:raw
+        });
+        summary.exceptions=(summary.exceptions||0)+1;
+        summary.skipped++;
+        continue;
+      }
+
+      payloads.push({
+        legacy_source_key:source,
+        device_id:raw["DEVICE ID"]||null,
+        completion_date:parseDate(raw["DATE"],tabDate),
+        installer:raw["INSTALLER NAME"]||null,
+        location:raw["LOCATION"]||null,
+        client:raw["NAME"]||null,
+        vehicle_details:raw["VEH DETAILS"]||raw["VEHICLE DETAILS"]||null,
+        vehicle_make:raw["VEH MAKE"]||null,
+        status:raw["STATUS"]||"Completed",
+        tss_officer:raw["TSS OFFICER"]||null
+      });
+    }
+  }
+
   summary.imported=await upsertChunks(supabase,"job_completions",payloads,"legacy_source_key",summary.errors,"Daily Job Done import");
-  if(!summary.errors.length) await cleanupLegacyCollisionKeys(supabase,"job_completions",collisionCleanupKeys,summary.errors,"Daily Job Done import");
+  if(exceptions.length){
+    await upsertChunks(supabase,"legacy_device_exceptions",exceptions,"legacy_source_key",summary.errors,"Legacy Device-ID exception import");
+  }
   return summary;
 }
 
