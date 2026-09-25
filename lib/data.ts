@@ -85,14 +85,14 @@ export async function updateJob(id:string,input:Record<string,unknown>,role:Role
   if(error) throw error;
 }
 
-export async function createTask(input:{title:string;description?:string;dueAt?:string|null;assignedTo?:string|null;priority?:string;department?:string},role:Role,creatorId:string){
+export async function createTask(input:{title:string;description?:string;dueAt?:string|null;assignedTo?:string|null;priority?:string;department?:string;relatedJobId?:string|null},role:Role,creatorId:string){
   if(!supabase) return null;
   if(role!=="Super Admin") throw new Error("Only Super Admin can create and assign tasks.");
   const {data:latest,error:latestError}=await supabase.from("tasks").select("task_id").like("task_id","TASK-%").order("task_id",{ascending:false}).limit(1);
   if(latestError) throw latestError;
   const next=(latest?.[0]?.task_id?.replace("TASK-","")?Number(latest[0].task_id.replace("TASK-","")):0)+1;
   const taskId=`TASK-${String(next).padStart(3,"0")}`;
-  const {error}=await supabase.from("tasks").insert({task_id:taskId,title:input.title.trim(),description:input.description||null,due_at:input.dueAt||null,assigned_to:input.assignedTo||null,created_by:creatorId,priority:input.priority||"Normal",department:input.department||null,status:"Pending"});
+  const {error}=await supabase.from("tasks").insert({task_id:taskId,title:input.title.trim(),description:input.description||null,due_at:input.dueAt||null,assigned_to:input.assignedTo||null,created_by:creatorId,priority:input.priority||"Normal",department:input.department||null,related_job_id:input.relatedJobId||null,status:"Pending"});
   if(error) throw error;
   return taskId;
 }
