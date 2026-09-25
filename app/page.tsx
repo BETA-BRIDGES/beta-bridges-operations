@@ -125,12 +125,19 @@ export default function Home(){
     }
     let active=true;
     const job=jobs.find(j=>j.id===form.jobId);
-    if(job && module==="Daily Job Done"){
+    if(job){
       setForm(previous=>({
         ...previous,
-        client:previous.client|| (job.client==="—"?"":job.client),
-        location:previous.location||job.location,
-        tssOfficer:previous.tssOfficer||job.tssOfficer
+        ...(module==="Daily Job Done"
+          ? {
+              client:previous.client|| (job.client==="—"?"":job.client),
+              location:previous.location||job.location,
+              tssOfficer:previous.tssOfficer||job.tssOfficer
+            }
+          : {
+              client:previous.client|| (job.client==="—"?"":job.client),
+              location:previous.location||job.location
+            })
       }));
     }
     void loadVehicles(form.jobId)
@@ -138,6 +145,17 @@ export default function Home(){
       .catch(error=>{if(active) setProfileError(error instanceof Error?error.message:"Unable to load workflow vehicles.")});
     return()=>{active=false};
   },[modal,module,form.jobId,jobs]);
+  useEffect(()=>{
+    if(!modal || !form.vehicleId) return;
+    const vehicle=workflowVehicles.find(v=>v.id===form.vehicleId);
+    if(!vehicle) return;
+    setForm(previous=>({
+      ...previous,
+      vehicleDetails:previous.vehicleDetails||vehicle.vehicleDetails,
+      vehicleMake:previous.vehicleMake||vehicle.vehicleMake
+    }));
+  },[modal,form.vehicleId,workflowVehicles]);
+
   async function signOut(){if(supabase) await supabase.auth.signOut();else setModule("Dashboard")}
   async function googleRequest(path:string,method:"GET"|"POST"="GET"){
     if(!supabase) throw new Error("Supabase is not configured.");
