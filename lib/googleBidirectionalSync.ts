@@ -81,9 +81,10 @@ async function platformSnapshot(module:string,supabase:any,tabs:SheetMeta[]){
     const rows=await selectAllRows(supabase,meta.table,meta.field,(q:any)=>q.not(meta.field,"is",null));
     const dates=Array.from(new Set(rows.map((x:any)=>String(x[meta.field]).slice(0,10)).filter(x=>/^\\d{4}-\\d{2}-\\d{2}$/.test(x)))).sort();
     const fallbackYear=dates.length?Number(dates[0].slice(0,4)):new Date().getFullYear();
-    const parsed=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date);
+    const parsed=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date) as {title:string;date:string}[];
+    const allDates=Array.from(new Set([...parsed.map(x=>x.date),...dates])).sort();
     const entries:any[]=[];
-    for(const date of dates){
+    for(const date of allDates){
       let target=parsed.find(x=>x.date===date);
       if(!target) target={title:legacyTitleFromDate(date),date};
       const built=await buildRows(module,supabase,date);
