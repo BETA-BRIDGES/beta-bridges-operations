@@ -50,7 +50,7 @@ export async function loadStock():Promise<StockRecord[]>{
 export async function loadCompletions():Promise<CompletionRecord[]>{
   if(!supabase) return [];
   const data=await loadAllRows<any>((from,to)=>supabase!.from("job_completions").select("id,job_id,vehicle_id,device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer,remarks").order("completion_date",{ascending:false}).range(from,to));
-  const rows=(data??[]) as {id:string;job_id:string|null;device_id:string|null;completion_date:string|null;installer:string|null;location:string|null;client:string|null;vehicle_details:string|null;vehicle_make:string|null;status:string|null;tss_officer:string|null;remarks:string|null}[];
+  const rows=(data??[]) as {id:string;job_id:string|null;vehicle_id:string|null;device_id:string|null;completion_date:string|null;installer:string|null;location:string|null;client:string|null;vehicle_details:string|null;vehicle_make:string|null;status:string|null;tss_officer:string|null;remarks:string|null}[];
   const jobIds=Array.from(new Set(rows.map(c=>c.job_id).filter(Boolean))) as string[];
   const chunks=Array.from({length:Math.ceil(jobIds.length/100)},(_,i)=>jobIds.slice(i*100,(i+1)*100));
   const jobResults=await Promise.all(chunks.map(ids=>supabase!.from("jobs").select("id,job_id").in("id",ids)));
