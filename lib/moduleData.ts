@@ -3,8 +3,8 @@ import type { Role } from "./permissions";
 
 export type ClientRecord={id:string;clientCode:string;name:string;contactPerson:string;phone:string;email:string;location:string;category:string;status:string;notes:string};
 export type ChargeRecord={id:string;chargeId:string;client:string;clientId:string|null;location:string;logistics:number;accommodation:number;swap:number;deinstallation:number;reinstallation:number;healthCheck:number;simReplacement:number;others:number;status:string};
-export type StockRecord={id:string;deviceId:string;simId:string;dateIssued:string;dateInstalled:string;installer:string;client:string;location:string;network:string;deviceType:string;deviceStatus:string;dateCollected:string;operationsRemark:string;operationsCorrection:string;vehicleDetails:string;vehicleMake:string;otherIssues:string};
-export type CompletionRecord={id:string;jobId:string;jobUuid:string|null;deviceId:string;date:string;installer:string;location:string;client:string;vehicleDetails:string;vehicleMake:string;status:string;tssOfficer:string;remarks:string};
+export type StockRecord={id:string;jobId:string|null;vehicleId:string|null;deviceId:string;simId:string;dateIssued:string;dateInstalled:string;installer:string;client:string;location:string;network:string;deviceType:string;deviceStatus:string;dateCollected:string;operationsRemark:string;operationsCorrection:string;vehicleDetails:string;vehicleMake:string;otherIssues:string};
+export type CompletionRecord={id:string;jobId:string;jobUuid:string|null;vehicleId:string|null;deviceId:string;date:string;installer:string;location:string;client:string;vehicleDetails:string;vehicleMake:string;status:string;tssOfficer:string;remarks:string};
 export type VehicleRecord={id:string;registration:string;vehicleMake:string;vehicleDetails:string;status:string};
 export type WeeklyRecord={id:string;technician:string;technicianId:string;week:string;weekStart:string;projects:number;vehiclesCompleted:number;date:string;remarks:string};
 export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean;moduleAccess:string[]|null};
@@ -43,13 +43,13 @@ export async function loadClients():Promise<ClientRecord[]>{
 
 export async function loadStock():Promise<StockRecord[]>{
   if(!supabase) return [];
-  const data=await loadAllRows<any>((from,to)=>supabase!.from("stock_transactions").select("id,device_id,sim_id,date_issued,date_installed,installer,client,location,network,device_type,device_status,date_collected,operations_remark,operations_correction,vehicle_details,vehicle_make,other_issues").order("date_installed",{ascending:false}).range(from,to));
-  return data.map(s=>({id:s.id,deviceId:s.device_id??"",simId:s.sim_id??"",dateIssued:safeDate(s.date_issued),dateInstalled:safeDate(s.date_installed),installer:s.installer??"",client:s.client??"",location:s.location??"",network:s.network??"",deviceType:s.device_type??"",deviceStatus:s.device_status??"",dateCollected:safeDate(s.date_collected),operationsRemark:s.operations_remark??"",operationsCorrection:s.operations_correction??"",vehicleDetails:s.vehicle_details??"",vehicleMake:s.vehicle_make??"",otherIssues:s.other_issues??""}));
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("stock_transactions").select("id,job_id,vehicle_id,device_id,sim_id,date_issued,date_installed,installer,client,location,network,device_type,device_status,date_collected,operations_remark,operations_correction,vehicle_details,vehicle_make,other_issues").order("date_installed",{ascending:false}).range(from,to));
+  return data.map(s=>({id:s.id,jobId:s.job_id??null,vehicleId:s.vehicle_id??null,deviceId:s.device_id??"",simId:s.sim_id??"",dateIssued:safeDate(s.date_issued),dateInstalled:safeDate(s.date_installed),installer:s.installer??"",client:s.client??"",location:s.location??"",network:s.network??"",deviceType:s.device_type??"",deviceStatus:s.device_status??"",dateCollected:safeDate(s.date_collected),operationsRemark:s.operations_remark??"",operationsCorrection:s.operations_correction??"",vehicleDetails:s.vehicle_details??"",vehicleMake:s.vehicle_make??"",otherIssues:s.other_issues??""}));
 }
 
 export async function loadCompletions():Promise<CompletionRecord[]>{
   if(!supabase) return [];
-  const data=await loadAllRows<any>((from,to)=>supabase!.from("job_completions").select("id,job_id,device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer,remarks").order("completion_date",{ascending:false}).range(from,to));
+  const data=await loadAllRows<any>((from,to)=>supabase!.from("job_completions").select("id,job_id,vehicle_id,device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer,remarks").order("completion_date",{ascending:false}).range(from,to));
   const rows=(data??[]) as {id:string;job_id:string|null;device_id:string|null;completion_date:string|null;installer:string|null;location:string|null;client:string|null;vehicle_details:string|null;vehicle_make:string|null;status:string|null;tss_officer:string|null;remarks:string|null}[];
   const jobIds=Array.from(new Set(rows.map(c=>c.job_id).filter(Boolean))) as string[];
   const chunks=Array.from({length:Math.ceil(jobIds.length/100)},(_,i)=>jobIds.slice(i*100,(i+1)*100));
@@ -62,6 +62,7 @@ export async function loadCompletions():Promise<CompletionRecord[]>{
     id:c.id,
     jobId:c.job_id?jobMap.get(c.job_id)||"": "",
     jobUuid:c.job_id??null,
+    vehicleId:c.vehicle_id??null,
     deviceId:c.device_id??"",
     date:safeDate(c.completion_date),
     installer:c.installer??"",
@@ -199,18 +200,19 @@ export async function updateCharge(id:string,input:Record<string,unknown>,role:R
   if(error) throw error;
 }
 
-export async function createCompletion(input:{jobId?:string|null;deviceId:string;date:string;installer?:string;location?:string;client?:string;vehicleDetails?:string;vehicleMake?:string;tssOfficer?:string;remarks?:string},role:Role){
+export async function createCompletion(input:{jobId?:string|null;vehicleId?:string|null;deviceId:string;date:string;installer?:string;location?:string;client?:string;vehicleDetails?:string;vehicleMake?:string;tssOfficer?:string;remarks?:string},role:Role){
   if(!supabase) return null;
   if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to create a Daily Job Done record.");
-  const {data,error}=await supabase.from("job_completions").insert({job_id:input.jobId||null,device_id:input.deviceId.trim(),completion_date:input.date||null,installer:input.installer||null,location:input.location||null,client:input.client||null,vehicle_details:input.vehicleDetails||null,vehicle_make:input.vehicleMake||null,status:"Completed",tss_officer:input.tssOfficer||null,remarks:input.remarks||null}).select("id").single();
+  const {data,error}=await supabase.from("job_completions").insert({job_id:input.jobId||null,vehicle_id:input.vehicleId||null,device_id:input.deviceId.trim(),completion_date:input.date||null,installer:input.installer||null,location:input.location||null,client:input.client||null,vehicle_details:input.vehicleDetails||null,vehicle_make:input.vehicleMake||null,status:"Completed",tss_officer:input.tssOfficer||null,remarks:input.remarks||null}).select("id").single();
   if(error) throw error;
   return data.id as string;
 }
-export async function updateCompletion(id:string,input:{jobId?:string|null;deviceId?:string;date?:string|null;installer?:string;location?:string;client?:string;vehicleDetails?:string;vehicleMake?:string;tssOfficer?:string;remarks?:string},role:Role){
+export async function updateCompletion(id:string,input:{jobId?:string|null;vehicleId?:string|null;deviceId?:string;date?:string|null;installer?:string;location?:string;client?:string;vehicleDetails?:string;vehicleMake?:string;tssOfficer?:string;remarks?:string},role:Role){
   if(!supabase) return;
   if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to edit a Daily Job Done record.");
   const {error}=await supabase.from("job_completions").update({
     job_id:input.jobId||null,
+    vehicle_id:input.vehicleId||null,
     device_id:input.deviceId?.trim()||null,
     completion_date:input.date||null,
     installer:input.installer||null,
