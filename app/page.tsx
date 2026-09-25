@@ -443,7 +443,7 @@ export default function Home(){
       || (jobAssignmentFilter==="assigned" && !!j.technicianId);
     return statusMatch && assignmentMatch && matches([j.jobId,j.client,j.tssOfficer,j.technician,j.location,j.status,j.date,j.priority]);
   });
-  const filteredCompletions=completions.filter(c=>matches([c.jobId,c.deviceId,c.date,c.installer,c.client,c.location,c.status,c.remarks]));
+  const filteredCompletions=completions.filter(c=>matches([c.jobId,c.jobUuid,c.vehicleId,c.deviceId,c.date,c.installer,c.client,c.location,c.vehicleDetails,c.vehicleMake,c.status,c.tssOfficer,c.remarks]));
   const filteredStock=stock.filter(s=>matches([s.jobId,s.vehicleId,s.deviceId,s.simId,s.dateIssued,s.dateInstalled,s.installer,s.client,s.location,s.network,s.deviceType,s.deviceStatus]));
   const filteredWeekly=visibleWeekly.filter(w=>matches([w.technician,w.week,w.projects,w.vehiclesCompleted,w.date,w.remarks]));
   const filteredCharges=charges.filter(ch=>matches([ch.chargeId,ch.client,ch.location,ch.logistics,ch.accommodation,ch.swap,ch.simReplacement,ch.others,ch.status]));
