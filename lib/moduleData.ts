@@ -109,9 +109,9 @@ export async function loadCharges():Promise<ChargeRecord[]>{
   return (data??[]).map(c=>({id:c.id,chargeId:c.charge_id,client:map.get(c.client_id ?? "")||"—",clientId:c.client_id||null,location:c.location??"",logistics:num(c.logistics),accommodation:num(c.accommodation),swap:num(c.swap),deinstallation:num(c.deinstallation),reinstallation:num(c.reinstallation),healthCheck:num(c.health_check),simReplacement:num(c.sim_replacement),others:num(c.others),status:c.paid_or_approved??"Pending"}));
 }
 
-export async function loadWeekly():Promise<WeeklyRecord[]>{
+export async function loadWeekly(role?:Role,userId?:string):Promise<WeeklyRecord[]>{
   if(!supabase) return [];
-  const data=await loadAllRows<any>((from,to)=>supabase!.from("technician_weekly_activity").select("id,technician_id,technician_name,week_start,projects_completed,vehicles_completed,remarks,updated_at").order("week_start",{ascending:false}).range(from,to));
+  const data=await loadAllRows<any>((from,to)=>{\n    let query=supabase!.from("technician_weekly_activity").select("id,technician_id,technician_name,week_start,projects_completed,vehicles_completed,remarks,updated_at").order("week_start",{ascending:false}).range(from,to);\n    if(role==="Field Technician" && userId) query=query.eq("technician_id",userId);\n    return query;\n  });
   const ids=Array.from(new Set((data??[]).map(x=>x.technician_id).filter(Boolean)));
   const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:WeeklyProfileLookup[];error:null}));
   if(profileError) throw profileError;
