@@ -30,6 +30,7 @@ export default function Home(){
   const router=useRouter();
   const [authLoading,setAuthLoading]=useState(Boolean(supabase));
   const [profile,setProfile]=useState<Profile|null>(null);
+  const [hasSession,setHasSession]=useState(false);
   const [profileError,setProfileError]=useState("");
   const [demoRole,setDemoRole]=useState<Role>("Super Admin");
   const role:Role=profile?.role??(supabase?"Viewer":demoRole);
@@ -95,7 +96,8 @@ export default function Home(){
     async function load(){
       const {data:{session}}=await supabase!.auth.getSession();
       if(!mounted) return;
-      if(!session){router.replace("/login");return}
+      if(!session){setHasSession(false);setAuthLoading(false);return}
+      setHasSession(true);
       const {data,error}=await supabase!.from("profiles").select("id,full_name,email,role,active,module_access").eq("id",session.user.id).maybeSingle();
       if(!mounted) return;
       if(error){setProfileError(error.message);setAuthLoading(false);return}
@@ -373,6 +375,7 @@ export default function Home(){
   const filteredTasks=tasks.filter(t=>matches([t.taskKey,t.title,t.assignee,t.due,t.status,jobs.find(j=>j.id===t.relatedJobId)?.jobId]));
 
   if(authLoading) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Loading Operations Portal</h1><p className="muted">Checking account and permissions…</p></section></main>;
+  if(!hasSession) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Operations Portal</h1><p className="muted">Welcome to the Beta Bridges Operations Management Portal.</p><div className="section"><div className="card"><h3>Existing user</h3><p className="muted">Sign in with your Beta Bridges account.</p><a className="btn primary" href="/login">Login</a></div><div className="card" style={{marginTop:12}}><h3>New user</h3><p className="muted">Create an account and request an operational role.</p><a className="btn" href="/signup">Sign up</a></div></div></section></main>;
   if(supabase&&!profile) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Account status</h1><p className="muted">This account does not have an active Beta Bridges profile yet.</p>{profileError&&<div className="login-error">{profileError}</div>}<p className="auth-link"><a href="/pending">View account status</a> · <a href="/login">Return to sign in</a></p></section></main>;
 
   return <div className="app">
