@@ -109,23 +109,9 @@ function buildSheetCollisionSlugs(sheets:{title:string}[]){
 function parseDate(value: unknown, fallback?: string | null){
   const raw=text(value);
   if(!raw) return fallback ?? null;
-
-  // Excel/Sheets exports may serialize dates as numeric day counts
-  // (for example 45966 or 45966.0). Treat those as Excel serial dates
-  // instead of allowing JavaScript to parse them as years.
-  const serialMatch=raw.match(/^(\d{4,6})(?:\.0+)?$/);
-  if(serialMatch){
-    const serial=Number(serialMatch[1]);
-    if(Number.isFinite(serial) && serial>=1 && serial<=100000){
-      const excelEpoch=Date.UTC(1899,11,30);
-      const js=new Date(excelEpoch + Math.trunc(serial)*86400000);
-      if(!Number.isNaN(js.getTime())) return js.toISOString().slice(0,10);
-    }
-  }
-
   const iso=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if(iso) return iso[1]+"-"+iso[2].padStart(2,"0")+"-"+iso[3].padStart(2,"0");
-  const dmy=raw.match(/^(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{4})$/);
+  const dmy=raw.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
   if(dmy) return dmy[3]+"-"+dmy[2].padStart(2,"0")+"-"+dmy[1].padStart(2,"0");
   const named=raw.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
   if(named){
@@ -133,9 +119,26 @@ function parseDate(value: unknown, fallback?: string | null){
     const idx=months.indexOf(named[2].toLowerCase());
     if(idx>=0) return named[3]+"-"+String(idx+1).padStart(2,"0")+"-"+named[1].padStart(2,"0");
   }
-  const js=new Date(raw);
-  if(!Number.isNaN(js.getTime()) && js.getUTCFullYear()>=1900 && js.getUTCFullYear()<=2200){
-    return js.toISOString().slice(0,10);
+
+  // Legacy tabs frequently use titles such as JAN17, FEB-3, SEPT-22ND or JLUY30TH.
+  // Those are month/day labels with no year; treat them as the current operational year
+  // rather than letting JavaScript coerce them into an unrelated 2001 date.
+  const compact=raw.toUpperCase().replace(/[\s._\/]+/g,"-").replace(/-+/g,"-");
+  const monthNames:Record<string,number>={JAN:1,JANUARY:1,FEB:2,FEBRUARY:2,MAR:3,MARCH:3,APR:4,APRIL:4,MAY:5,JUN:6,JUNE:6,JUL:7,JULY:7,JLUY:7,AUG:8,AUGUST:8,SEP:9,SEPT:9,SEPTEMBER:9,OCT:10,OCTOBER:10,NOV:11,NOVEMBER:11,DEC:12,DECEMBER:12};
+  const monthDay=compact.match(/^([A-Z]+)-?(\d{1,2})(?:ST|ND|RD|TH)?$/);
+  if(monthDay){
+    const month=monthNames[monthDay[1]];
+    const day=Number(monthDay[2]);
+    if(month && day>=1 && day<=31){
+      const year=new Date().getFullYear();
+      return year+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+    }
+  }
+
+  // Only use the native parser for values that explicitly carry a four-digit year.
+  if(/\b\d{4}\b/.test(raw)){
+    const js=new Date(raw);
+    if(!Number.isNaN(js.getTime())) return js.toISOString().slice(0,10);
   }
   return fallback ?? null;
 }
