@@ -11,7 +11,7 @@ type Profile={id:string;full_name:string;email:string;role:Role;active:boolean;m
 type GoogleStatus={connected:boolean;googleEmail:string|null;connections:{module:string;spreadsheet_id:string;sheet_name:string|null;last_sync_at:string|null;last_error:string|null;active:boolean;sync_direction:string}[]};
 type FormState=Record<string,string>;
 
-const MODULES=["Daily Job Listing","Daily Job Done","Used Stock","Techie Weekly Activity","Miscellaneous Charges","Client Data","Tasks"] as const;
+const MODULES=["Daily Job Listing","Daily Job Done","Used Stock","Techie Weekly Activity","Miscellaneous Charges","Client Data","Vehicle Management","Tasks"] as const;
 function today(){return new Date().toISOString().slice(0,10)}
 function money(value:number){return `₦${Number(value||0).toLocaleString("en-NG")}`}
 function pretty(value:string|null|undefined){return value||"—"}
