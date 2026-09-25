@@ -87,7 +87,7 @@ export async function updateJob(id:string,input:Record<string,unknown>,role:Role
 
 export async function createTask(input:{title:string;description?:string;dueAt?:string|null;assignedTo?:string|null;priority?:string;department?:string;relatedJobId?:string|null},role:Role,creatorId:string){
   if(!supabase) return null;
-  if(role!=="Super Admin") throw new Error("Only Super Admin can create and assign tasks.");
+  if(role==="Viewer") throw new Error("Viewers can view tasks but cannot create or assign them.");
   const {data:latest,error:latestError}=await supabase.from("tasks").select("task_id").like("task_id","TASK-%").order("task_id",{ascending:false}).limit(1);
   if(latestError) throw latestError;
   const next=(latest?.[0]?.task_id?.replace("TASK-","")?Number(latest[0].task_id.replace("TASK-","")):0)+1;
@@ -99,14 +99,14 @@ export async function createTask(input:{title:string;description?:string;dueAt?:
 
 export async function updateTaskStatus(id:string,status:"Pending"|"Acknowledged"|"In Progress"|"Completed"|"Cancelled"|"Overdue",role:Role){
   if(!supabase) return;
-  if(!(role==="Super Admin"||role==="Field Technician")) throw new Error("You are not permitted to update this task.");
+  if(role==="Viewer") throw new Error("Viewers can view tasks but cannot update them.");
   const {error}=await supabase.from("tasks").update({status,completed_at:status==="Completed"?new Date().toISOString():null}).eq("id",id);
   if(error) throw error;
 }
 
 export async function addTaskComment(taskId:string,comment:string,userId:string,role:Role){
   if(!supabase) return;
-  if(!(role==="Super Admin"||role==="Field Technician")) throw new Error("You are not permitted to comment on this task.");
+  if(role==="Viewer") throw new Error("Viewers can view tasks but cannot comment on them.");
   const {error}=await supabase.from("task_comments").insert({task_id:taskId,comment:comment.trim(),user_id:userId});
   if(error) throw error;
 }
