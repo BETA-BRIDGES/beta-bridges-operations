@@ -206,6 +206,20 @@ export async function markNotificationRead(id:string){
   if(error) throw error;
 }
 
+export async function assignJobToTechnician(jobId:string,technicianId:string|null,role:Role){
+  if(!supabase) return;
+  if(role!=="Super Admin") throw new Error("Only Super Admin can assign a technician.");
+  const {error}=await supabase.rpc("assign_job_to_technician",{p_job_id:jobId,p_technician_id:technicianId||null});
+  if(error) throw error;
+}
+
+export async function fieldTechStartJob(jobId:string,role:Role){
+  if(!supabase) return;
+  if(role!=="Field Technician") throw new Error("Only Field Technicians can start assigned jobs.");
+  const {error}=await supabase.rpc("field_tech_start_job",{p_job_id:jobId});
+  if(error) throw error;
+}
+
 export async function createClient(input:{name:string;contactPerson?:string;phone?:string;email?:string;location?:string;category?:string;notes?:string},role:Role){
   if(!supabase) return null;
   if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to create a client.");
@@ -251,9 +265,28 @@ export async function updateCharge(id:string,input:Record<string,unknown>,role:R
 
 export async function createCompletion(input:{jobId?:string|null;vehicleId?:string|null;deviceId:string;date:string;installer?:string;location?:string;client?:string;vehicleDetails?:string;vehicleMake?:string;tssOfficer?:string;remarks?:string},role:Role){
   if(!supabase) return null;
-  if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to create a Daily Job Done record.");
+  if(!(role==="Super Admin"||role==="TSS Officer"||role==="Field Technician")) throw new Error("You are not permitted to create a Daily Job Done record.");
   if(!input.jobId || !input.vehicleId) throw new Error("A Job and Vehicle are required for a new Daily Job Done record.");
   if(!input.deviceId.trim()) throw new Error("DEVICE ID is required for a new Daily Job Done record.");
+
+  if(role==="Field Technician"){
+    const {data,error}=await supabase.rpc("field_tech_submit_completion",{
+      p_job_id:input.jobId,
+      p_vehicle_id:input.vehicleId,
+      p_device_id:input.deviceId.trim(),
+      p_completion_date:input.date||null,
+      p_installer:input.installer||null,
+      p_location:input.location||null,
+      p_client:input.client||null,
+      p_vehicle_details:input.vehicleDetails||null,
+      p_vehicle_make:input.vehicleMake||null,
+      p_tss_officer:input.tssOfficer||null,
+      p_remarks:input.remarks||null
+    });
+    if(error) throw error;
+    return String(data);
+  }
+
   const {data:vehicle,error:vehicleError}=await supabase.from("vehicles").select("id,job_id").eq("id",input.vehicleId).maybeSingle();
   if(vehicleError) throw vehicleError;
   if(!vehicle || vehicle.job_id!==input.jobId) throw new Error("The selected vehicle does not belong to the selected job.");
