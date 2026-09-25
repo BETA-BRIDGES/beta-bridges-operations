@@ -2,13 +2,13 @@ import { supabase } from "./supabase";
 import type { Role } from "./permissions";
 
 export type AppJob={id:string;jobId:string;client:string;clientId:string|null;vehicles:number;date:string;time:string;technician:string;technicianId:string|null;tssOfficer:string;tssOfficerId:string|null;status:string;location:string};
-export type AppTask={id:string;taskKey:string;title:string;assignee:string;assigneeId:string|null;due:string;status:string};
+export type AppTask={id:string;taskKey:string;title:string;assignee:string;assigneeId:string|null;due:string;status:string;relatedJobId:string|null};
 
 type ClientLookup={id:string;name:string|null};
 type ProfileLookup={id:string;full_name:string|null};
 type TaskProfileLookup={id:string;full_name:string|null};
 type JobLookupRow={id:string;job_id:string;client_id:string|null;number_of_vehicles:number;scheduled_date:string;scheduled_time:string|null;assigned_technician_id:string|null;tss_officer_id:string|null;tss_officer_name:string|null;status:string;location:string|null};
-type TaskLookupRow={id:string;task_id:string;title:string;assigned_to:string|null;due_at:string|null;status:string};
+type TaskLookupRow={id:string;task_id:string;title:string;assigned_to:string|null;due_at:string|null;status:string;related_job_id:string|null};
 
 function formatDate(value:string|null){
   if(!value) return "—";
@@ -55,13 +55,13 @@ export async function loadJobs():Promise<AppJob[]>{
 
 export async function loadTasks():Promise<AppTask[]>{
   if(!supabase) return [];
-  const rows=await loadAllRows<TaskLookupRow>((from,to)=>supabase!.from("tasks").select("id,task_id,title,assigned_to,due_at,status").order("due_at",{ascending:true}).range(from,to));
+  const rows=await loadAllRows<TaskLookupRow>((from,to)=>supabase!.from("tasks").select("id,task_id,title,assigned_to,due_at,status,related_job_id").order("due_at",{ascending:true}).range(from,to));
   const ids=Array.from(new Set(rows.map(t=>t.assigned_to).filter(Boolean)));
   const {data:profiles,error:profileError}=await (ids.length?supabase.from("profiles").select("id,full_name").in("id",ids):Promise.resolve({data:[],error:null} as {data:TaskProfileLookup[];error:null}));
   if(profileError) throw profileError;
   const profileRows=(profiles??[]) as TaskProfileLookup[];
   const map=new Map<string,string|null>(profileRows.map((p:TaskProfileLookup)=>[p.id,p.full_name]));
-  return rows.map(t=>({id:t.id,taskKey:t.task_id,title:t.title,assignee:map.get(t.assigned_to ?? "")||"Unassigned",assigneeId:t.assigned_to||null,due:t.due_at?new Date(t.due_at).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—",status:t.status}));
+  return rows.map(t=>({id:t.id,taskKey:t.task_id,title:t.title,assignee:map.get(t.assigned_to ?? "")||"Unassigned",assigneeId:t.assigned_to||null,due:t.due_at?new Date(t.due_at).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—",status:t.status,relatedJobId:t.related_job_id||null}));
 }
 
 export async function createJob(input:{clientId?:string|null;numberOfVehicles:number;scheduledDate:string;scheduledTime?:string;location?:string;vehicleMake?:string;priority?:string;description?:string;tssOfficerId?:string|null},role:Role){
