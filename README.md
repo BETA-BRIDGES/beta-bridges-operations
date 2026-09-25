@@ -10,6 +10,8 @@ Internal operations management platform for Beta Bridges.
 - Daily Job Done
 - Used Stock
 - Techie Weekly Activity
+- Date-filtered views for Daily Job Listing and Daily Job Done, with selected-date navigation
+- Tabular Techie Weekly Activity view with technician filtering
 - Miscellaneous Charges
 - Client Data
 - Tasks & Reminders
