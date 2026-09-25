@@ -320,6 +320,15 @@ export default function Home(){
       }else if(formMode==="comment"){
         await addTaskComment(selectedId,form.comment||"",profile?.id||"",role);
       }else if(formMode==="vehicles"){
+        if(vehicleEditingId){
+          if(!form.registration?.trim()) throw new Error("Vehicle registration is required.");
+          await updateVehicle(vehicleEditingId,{registration:form.registration,vehicleMake:form.vehicleMake,vehicleDetails:form.vehicleDetails,status:form.vehicleStatus},role);
+          setJobVehicles(await loadVehicles(selectedId));
+          setVehicleEditingId("");
+          setForm({registration:"",vehicleMake:"",vehicleDetails:"",vehicleStatus:"Pending"});
+          setBusy(false);
+          return;
+        }
         if(jobVehicles.length >= (jobs.find(j=>j.id===selectedId)?.vehicles||0)) throw new Error("All vehicle slots for this project have already been recorded.");
         if(!form.registration?.trim()) throw new Error("Vehicle registration is required.");
         await createVehicle(selectedId,{registration:form.registration,vehicleMake:form.vehicleMake,vehicleDetails:form.vehicleDetails,status:form.vehicleStatus},role);
@@ -327,6 +336,11 @@ export default function Home(){
         setForm({registration:"",vehicleMake:"",vehicleDetails:"",vehicleStatus:"Pending"});
         setBusy(false);
         return;
+      }else if(formMode==="vehicle-record"){
+        if(!form.jobId) throw new Error("Select an Operational Job before adding or editing a vehicle.");
+        if(!form.registration?.trim()) throw new Error("Vehicle registration is required.");
+        if(editing) await updateVehicle(selectedId,{registration:form.registration,vehicleMake:form.vehicleMake,vehicleDetails:form.vehicleDetails,status:form.vehicleStatus},role);
+        else await createVehicle(form.jobId,{registration:form.registration,vehicleMake:form.vehicleMake,vehicleDetails:form.vehicleDetails,status:form.vehicleStatus},role);
       }else if(module==="Daily Job Listing"){
         const payload:any={client_id:form.clientId||null,number_of_vehicles:Math.max(1,Number(form.numberOfVehicles)||1),scheduled_date:form.scheduledDate||null,scheduled_time:form.scheduledTime||null,location:form.location||null,vehicle_make:form.vehicleMake||null,priority:form.priority||"Normal",description:form.description||null,status:form.status||"Pending"};
         if(role==="Super Admin") payload.assigned_technician_id=form.assignedTechnicianId||null;
@@ -443,7 +457,7 @@ export default function Home(){
         {module==="Client Data"&&<div className="form-grid"><Field label="Client name" name="name" value={form.name||""} setValue={v=>setField("name",v)}/><Field label="Client code" name="clientCode" value={form.clientCode||""} setValue={v=>setField("clientCode",v)}/><Field label="Contact person" name="contactPerson" value={form.contactPerson||""} setValue={v=>setField("contactPerson",v)}/><Field label="Phone" name="phone" value={form.phone||""} setValue={v=>setField("phone",v)}/><Field label="Email" name="email" type="email" value={form.email||""} setValue={v=>setField("email",v)}/><Field label="Location" name="location" value={form.location||""} setValue={v=>setField("location",v)}/><Field label="Category" name="category" value={form.category||""} setValue={v=>setField("category",v)}/><Field label="Status" name="status" value={form.status||"Active"} setValue={v=>setField("status",v)} options={["Active","Inactive"].map(x=>({value:x,label:x}))}/><Field label="Notes" name="notes" type="textarea" value={form.notes||""} setValue={v=>setField("notes",v)}/></div>}
         {module==="Tasks"&&<div className="form-grid"><Field label="Title" name="title" value={form.title||""} setValue={v=>setField("title",v)}/><Field label="Linked Job" name="relatedJobId" value={form.relatedJobId||""} setValue={v=>setField("relatedJobId",v)} options={jobs.map(j=>({value:j.id,label:j.jobId+" · "+j.client+" · "+j.date}))}/><Field label="Assignee" name="assignedTo" value={form.assignedTo||""} setValue={v=>setField("assignedTo",v)} options={users.filter(u=>u.active&&u.role!=="Viewer").map(u=>({value:u.id,label:`${u.fullName} · ${u.role}`}))}/><Field label="Department" name="department" value={form.department||""} setValue={v=>setField("department",v)}/><Field label="Priority" name="priority" value={form.priority||"Normal"} setValue={v=>setField("priority",v)} options={["Normal","High","Urgent"].map(x=>({value:x,label:x}))}/><Field label="Due" name="dueAt" type="datetime-local" value={form.dueAt||""} setValue={v=>setField("dueAt",v)}/><Field label="Description" name="description" type="textarea" value={form.description||""} setValue={v=>setField("description",v)}/></div>}
       </>}
-      <div className="modal-actions">{profileError&&<div className="login-error">{profileError}</div>}<button type="button" className="btn" onClick={closeModal}>Cancel</button><button className="btn primary" disabled={busy||formMode==="vehicles"&&jobVehicles.length>=(jobs.find(j=>j.id===selectedId)?.vehicles||0)}>{busy?"Saving…":formMode==="vehicles"?"Add vehicle":formMode==="create-user"?"Create user":"Save"}</button></div>
+      <div className="modal-actions">{profileError&&<div className="login-error">{profileError}</div>}<button type="button" className="btn" onClick={closeModal}>Cancel</button><button className="btn primary" disabled={busy||(formMode==="vehicles"&&!vehicleEditingId&&jobVehicles.length>=(jobs.find(j=>j.id===selectedId)?.vehicles||0))}>{busy?"Saving…":formMode==="vehicles"?(vehicleEditingId?"Update vehicle":"Add vehicle"):formMode==="vehicle-record"?(editing?"Update vehicle":"Add vehicle"):formMode==="create-user"?"Create user":"Save"}</button></div>
     </form></div>}
   </div>
 }
