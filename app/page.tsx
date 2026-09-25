@@ -46,6 +46,8 @@ export default function Home(){
   const [notifications,setNotifications]=useState<NotificationRecord[]>([]);
   const [reminders,setReminders]=useState<ReminderRecord[]>([]);
   const [jobVehicles,setJobVehicles]=useState<VehicleRecord[]>([]);
+  const [managedVehicles,setManagedVehicles]=useState<VehicleRecord[]>([]);
+  const [vehicleEditingId,setVehicleEditingId]=useState("");
   const [workflowVehicles,setWorkflowVehicles]=useState<VehicleRecord[]>([]);
   const [googleStatus,setGoogleStatus]=useState<GoogleStatus|null>(null);
   const [googleBusy,setGoogleBusy]=useState(false);
@@ -68,7 +70,7 @@ export default function Home(){
   const technicians=users.filter(u=>u.active&&u.role==="Field Technician");
   const unreadCount=notifications.filter(n=>!n.readAt).length;
   function setField(name:string,value:string){setForm(p=>({...p,[name]:value}))}
-  function closeModal(){setModal(false);setEditing(false);setFormMode("record");setSelectedId("");setSelectedTaskComments([])}
+  function closeModal(){setModal(false);setEditing(false);setFormMode("record");setSelectedId("");setSelectedTaskComments([]);setVehicleEditingId("")}
   function openUserEdit(user:UserRecord){setModule("Administration");setEditing(true);setFormMode("user");setSelectedId(user.id);setForm({role:user.role,active:String(user.active),moduleAccess:user.moduleAccess===null?MODULES.join("||"):user.moduleAccess.join("||")});setModal(true)}
   function openUserCreate(){setModule("Administration");setEditing(false);setFormMode("create-user");setSelectedId("");setForm({fullName:"",email:"",password:"",role:"Field Technician",moduleAccess:MODULES.join("||")});setModal(true)}
   function openReminderCreate(){setModule("Administration");setEditing(false);setFormMode("reminder");setSelectedId("");setForm({title:"",details:"",userId:profile?.id||"",remindAt:""});setModal(true)}
