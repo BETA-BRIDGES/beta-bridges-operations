@@ -8,7 +8,7 @@ export const permissions:Record<string,Record<Role,string[]>>={
   "Techie Weekly Activity":{"Super Admin":["view","create","edit","delete"],Operations:["view","create","edit"],"TSS Officer":[],"Field Technician":["view"],Finance:[],Viewer:["view"]},
   "Miscellaneous Charges":{"Super Admin":["view","create","edit","delete"],Operations:[],"TSS Officer":["view","create","edit","delete"],"Field Technician":[],Finance:["view","copy"],Viewer:["view"]},
   "Client Data":{"Super Admin":["view","create","edit","delete"],Operations:[],"TSS Officer":["view","create","edit","delete"],"Field Technician":[],Finance:[],Viewer:["view"]},
-  "Tasks":{"Super Admin":["view","create","edit","assign","delete","notify","comment","complete"],Operations:["view","create","edit","assign","notify","comment","complete"],"TSS Officer":["view","create","edit","assign","notify","comment","complete"],"Field Technician":["view","create","edit","assign","notify","comment","complete"],Finance:["view","create","edit","assign","notify","comment","complete"],Viewer:["view"]}
+  "Tasks":{"Super Admin":["view","create","edit","assign","delete","notify","comment","complete"],Operations:["view","create","edit","assign","notify","comment","complete"],"TSS Officer":["view","create","edit","assign","notify","comment","complete"],"Field Technician":["view","comment","complete"],Finance:["view","create","edit","assign","notify","comment","complete"],Viewer:["view"]}
 };
 
 const fieldRules:Record<string,Partial<Record<Role,{editable?:string[];readonly?:string[]}>>>={
