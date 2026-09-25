@@ -5,7 +5,7 @@ export type ClientRecord={id:string;clientCode:string;name:string;contactPerson:
 export type ChargeRecord={id:string;chargeId:string;client:string;clientId:string|null;location:string;logistics:number;accommodation:number;swap:number;deinstallation:number;reinstallation:number;healthCheck:number;simReplacement:number;others:number;status:string};
 export type StockRecord={id:string;jobId:string|null;vehicleId:string|null;deviceId:string;simId:string;dateIssued:string;dateInstalled:string;installer:string;client:string;location:string;network:string;deviceType:string;deviceStatus:string;dateCollected:string;operationsRemark:string;operationsCorrection:string;vehicleDetails:string;vehicleMake:string;otherIssues:string};
 export type CompletionRecord={id:string;jobId:string;jobUuid:string|null;vehicleId:string|null;deviceId:string;date:string;installer:string;location:string;client:string;vehicleDetails:string;vehicleMake:string;status:string;tssOfficer:string;remarks:string};
-export type VehicleRecord={id:string;jobId:string;registration:string;vehicleMake:string;vehicleDetails:string;status:string;jobKey?:string;client?:string;scheduledDate?:string;jobStatus?:string;technician?:string};
+export type VehicleRecord={id:string;jobId:string;registration:string;vehicleMake:string;vehicleDetails:string;status:string;jobKey?:string;client?:string;scheduledDate?:string;jobStatus?:string;technician?:string;technicianId?:string|null};
 export type WeeklyRecord={id:string;technician:string;technicianId:string;week:string;weekStart:string;projects:number;vehiclesCompleted:number;date:string;remarks:string};
 export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean;moduleAccess:string[]|null};
 export type NotificationRecord={id:string;title:string;message:string;type:string;readAt:string|null;createdAt:string;relatedTaskId:string|null};
@@ -135,7 +135,7 @@ export async function loadVehicleManagement():Promise<VehicleRecord[]>{
     const job=jobMap.get(String(v.job_id));
     return {id:String(v.id),jobId:String(v.job_id),registration:v.registration??"",vehicleMake:v.vehicle_make??"",vehicleDetails:v.vehicle_details??"",status:v.status??"Pending",
       jobKey:job?.job_id??"—",client:clientMap.get(String(job?.client_id??""))||"—",scheduledDate:job?.scheduled_date??"",jobStatus:job?.status??"—",
-      technician:techMap.get(String(job?.assigned_technician_id??""))||"Unassigned"};
+      technician:techMap.get(String(job?.assigned_technician_id??""))||"Unassigned",technicianId:job?.assigned_technician_id??null};
   });
 }
 
