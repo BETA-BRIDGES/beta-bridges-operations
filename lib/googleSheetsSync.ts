@@ -93,7 +93,7 @@ async function selectAllRows(
   return all;
 }
 
-async function buildRows(module:string,supabase:any,dateKey?:string){
+export async function buildRows(module:string,supabase:any,dateKey?:string){
   if(module==="dailyJobListing"){
     const data=await selectAllRows(supabase,"jobs","id,job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id",(q:any)=>{
       if(dateKey) q=q.eq("scheduled_date",dateKey);
