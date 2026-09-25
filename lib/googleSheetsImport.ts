@@ -13,12 +13,13 @@ type ImportSummary = {
   exceptions?: number;
 };
 
+const SYNC_ID_HEADER="BB SYNC ID";
 const expectedHeaders: Record<string, string[]> = {
-  clientData: ["S/N","CUSTOMER/CLIENT NAME","CONTACT PERSON","CUSTOMER CATEGORY","PHONE NUMBER","EMAIL ADDRESS","LOCATION"],
-  dailyJobListing: ["CLIENT NAMES","INSURANCE/PERSONAL","NUMBERS OF JOB","VEHICLE MAKE","TIME","LOCATION","TSS OFFICER"],
-  dailyJobDone: ["DEVICE ID","DATE","INSTALLER NAME","LOCATION","NAME","VEH DETAILS","VEH MAKE","STATUS","TSS OFFICER"],
-  usedStock: ["NETWORK","DEVICE TYPES","DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS","DEVICE ID","SIM ID","DATE COLLECTED","OPS REMARK - RECEIVED OR NOT RECEIVED","OPS CORRECTIONS - DEVICE & SIM","DATE/MONTH ISSUED TO TECHNICIAN","DATE INSTALLED","INSTALLER NAME","LOCATION","CLIENT NAME","VEHICLE DETAILS","VEHICLE MAKE","OTHER ISSUES"],
-  miscellaneousCharges: ["S/N","CUSTOMER/ CLIENT NAME","LOCATION","LOGISTICS","ACCOMMODATION","SWAP","DEINSTALLATION","REINSTALLATION","HEALTH CHECK","SIM REPLACEMENT","OTHERS","PAID OR APPROVED"]
+  clientData: ["S/N","CUSTOMER/CLIENT NAME","CONTACT PERSON","CUSTOMER CATEGORY","PHONE NUMBER","EMAIL ADDRESS","LOCATION",SYNC_ID_HEADER],
+  dailyJobListing: ["CLIENT NAMES","INSURANCE/PERSONAL","NUMBERS OF JOB","VEHICLE MAKE","TIME","LOCATION","TSS OFFICER",SYNC_ID_HEADER],
+  dailyJobDone: ["DEVICE ID","DATE","INSTALLER NAME","LOCATION","NAME","VEH DETAILS","VEH MAKE","STATUS","TSS OFFICER",SYNC_ID_HEADER],
+  usedStock: ["NETWORK","DEVICE TYPES","DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS","DEVICE ID","SIM ID","DATE COLLECTED","OPS REMARK - RECEIVED OR NOT RECEIVED","OPS CORRECTIONS - DEVICE & SIM","DATE/MONTH ISSUED TO TECHNICIAN","DATE INSTALLED","INSTALLER NAME","LOCATION","CLIENT NAME","VEHICLE DETAILS","VEHICLE MAKE","OTHER ISSUES",SYNC_ID_HEADER],
+  miscellaneousCharges: ["S/N","CUSTOMER/ CLIENT NAME","LOCATION","LOGISTICS","ACCOMMODATION","SWAP","DEINSTALLATION","REINSTALLATION","HEALTH CHECK","SIM REPLACEMENT","OTHERS","PAID OR APPROVED",SYNC_ID_HEADER]
 };
 
 function text(value: unknown){return value == null ? "" : String(value).trim();}
@@ -409,6 +410,7 @@ function sourceKey(module:string,sheet:string,rowNumber:number,collisionSlugs?:S
   if(collisionSlugs?.has(baseSlug)) return `sheet|${module}|${baseSlug}|${stableHash(sheet)}|${rowNumber}`;
   return legacySheetSourceKey(module,sheet,rowNumber);
 }
+function validSyncId(value:unknown){const s=text(value);return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)?s:null;}
 
 async function upsertClient(supabase:any,item:{name:string;code?:string;contact?:string;category?:string;phone?:string;email?:string;location?:string},sourceKeyValue?:string){
   const name=text(item.name); if(!name) return null;
@@ -442,16 +444,29 @@ async function ensureClient(supabase:any,map:Map<string,string>,name:string){
 async function upsertChunks(
   supabase:any, table:string, rows:any[], onConflict:string, errors:string[], label:string, chunkSize=500
 ){
-  // Collapse duplicate conflict keys across the entire import, not just one batch.
+  const withId=rows.filter(row=>row?.id);
+  const withoutId=rows.filter(row=>!row?.id);
+  let imported=0;
+
+  for(let start=0;start<withId.length;start+=chunkSize){
+    const chunk=withId.slice(start,start+chunkSize).map(row=>{
+      const copy={...row};
+      delete copy[onConflict];
+      return copy;
+    });
+    const {error}=await supabase.from(table).upsert(chunk,{onConflict:"id"});
+    if(error) errors.push(label+" stable-ID batch "+(start+1)+"-"+(start+chunk.length)+": "+error.message);
+    else imported+=chunk.length;
+  }
+
   const unique=new Map<string,any>();
   const passthrough:any[]=[];
-  for(const row of rows){
+  for(const row of withoutId){
     const key=row?.[onConflict];
     if(key==null || String(key)==="") passthrough.push(row);
     else unique.set(String(key),row);
   }
   const deduped=passthrough.concat(Array.from(unique.values()));
-  let imported=0;
   for(let start=0;start<deduped.length;start+=chunkSize){
     const chunk=deduped.slice(start,start+chunkSize);
     const {error}=await supabase.from(table).upsert(chunk,{onConflict});
@@ -640,6 +655,7 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
           if(!name){summary.skipped++;continue;}
           payloads.push({
             legacy_source_key:legacyClientKey(name),
+            id:validSyncId(row[findHeaderColumn(headers,[SYNC_ID_HEADER])])||undefined,
             client_code:null,
             name,
             contact_person:contactCol>=0?text(row[contactCol])||null:null,
@@ -699,7 +715,7 @@ async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:strin
   for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["CLIENT NAMES"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw,fallbackDate:tabDate});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CLIENT NAMES"]),clients);
-  const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];if(collisionSlugs.has(slug(x.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobListing",x.title,x.rowNumber));return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber,collisionSlugs),job_id:"BB-LEGACY-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,legacy_client_name:x.raw["CLIENT NAMES"]||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
+  const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];if(collisionSlugs.has(slug(x.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobListing",x.title,x.rowNumber));return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber,collisionSlugs),id:validSyncId(x.raw[SYNC_ID_HEADER])||undefined,job_id:"BB-LEGACY-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,legacy_client_name:x.raw["CLIENT NAMES"]||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
   summary.imported=await upsertChunks(supabase,"jobs",payloads,"legacy_source_key",summary.errors,"Job import");
   if(!summary.errors.length) await cleanupLegacyCollisionKeys(supabase,"jobs",collisionCleanupKeys,summary.errors,"Job import");
   return summary;
@@ -756,6 +772,7 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
 
       payloads.push({
         legacy_source_key:source,
+        id:validSyncId(raw[SYNC_ID_HEADER])||undefined,
         device_id:raw["DEVICE ID"]||null,
         completion_date:parseDate(raw["DATE"],tabDate),
         installer:raw["INSTALLER NAME"]||null,
@@ -779,7 +796,7 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
 async function importStock(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"usedStock",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.usedStock);if(!info)continue;summary.sheets++;
-    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["DEVICE ID"]&&!raw["SIM ID"]){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("usedStock",sheet.title,i+1),network:raw["NETWORK"]||null,device_type:raw["DEVICE TYPES"]||null,device_status:raw["DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS"]||null,device_id:raw["DEVICE ID"]||null,sim_id:raw["SIM ID"]||null,date_collected:parseDate(raw["DATE COLLECTED"]),operations_remark:raw["OPS REMARK - RECEIVED OR NOT RECEIVED"]||null,operations_correction:raw["OPS CORRECTIONS - DEVICE & SIM"]||null,date_issued:parseDate(raw["DATE/MONTH ISSUED TO TECHNICIAN"]),date_installed:parseDate(raw["DATE INSTALLED"]),installer:raw["INSTALLER NAME"]||null,location:raw["LOCATION"]||null,client:raw["CLIENT NAME"]||null,vehicle_details:raw["VEHICLE DETAILS"]||raw["VEH DETAILS"]||null,vehicle_make:raw["VEHICLE MAKE"]||null,other_issues:raw["OTHER ISSUES"]||null});}}
+    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["DEVICE ID"]&&!raw["SIM ID"]){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("usedStock",sheet.title,i+1),id:validSyncId(raw[SYNC_ID_HEADER])||undefined,network:raw["NETWORK"]||null,device_type:raw["DEVICE TYPES"]||null,device_status:raw["DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS"]||null,device_id:raw["DEVICE ID"]||null,sim_id:raw["SIM ID"]||null,date_collected:parseDate(raw["DATE COLLECTED"]),operations_remark:raw["OPS REMARK - RECEIVED OR NOT RECEIVED"]||null,operations_correction:raw["OPS CORRECTIONS - DEVICE & SIM"]||null,date_issued:parseDate(raw["DATE/MONTH ISSUED TO TECHNICIAN"]),date_installed:parseDate(raw["DATE INSTALLED"]),installer:raw["INSTALLER NAME"]||null,location:raw["LOCATION"]||null,client:raw["CLIENT NAME"]||null,vehicle_details:raw["VEHICLE DETAILS"]||raw["VEH DETAILS"]||null,vehicle_make:raw["VEHICLE MAKE"]||null,other_issues:raw["OTHER ISSUES"]||null});}}
   summary.imported=await upsertChunks(supabase,"stock_transactions",payloads,"legacy_source_key",summary.errors,"Used Stock import");return summary;
 }
 
@@ -794,7 +811,7 @@ async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:st
     if(!info)continue;summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"]||raw["NAME"];if(!name&&!raw["LOCATION"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CUSTOMER/ CLIENT NAME"]||x.raw["CUSTOMER/CLIENT NAME"]||x.raw["CLIENT NAME"]),clients);
-  const payloads=rawRows.map(x=>{const raw=x.raw;const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];return{legacy_source_key:sourceKey("miscellaneousCharges",x.title,x.rowNumber),charge_id:"BB-LEGACY-CHG-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(name))||null,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),paid_or_approved:raw["PAID OR APPROVED"]||"Pending"};});
+  const payloads=rawRows.map(x=>{const raw=x.raw;const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];return{legacy_source_key:sourceKey("miscellaneousCharges",x.title,x.rowNumber),id:validSyncId(raw[SYNC_ID_HEADER])||undefined,charge_id:"BB-LEGACY-CHG-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(name))||null,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),paid_or_approved:raw["PAID OR APPROVED"]||"Pending"};});
   summary.imported=await upsertChunks(supabase,"miscellaneous_charges",payloads,"legacy_source_key",summary.errors,"Miscellaneous Charges import");return summary;
 }
 
