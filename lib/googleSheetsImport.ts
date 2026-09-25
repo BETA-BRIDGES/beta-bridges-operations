@@ -190,7 +190,7 @@ function worksheetRows(worksheet:XLSX.WorkSheet){
   return rows;
 }
 
-async function loadDriveWorkbook(client:drive_v3.Drive,spreadsheetId:string){
+export async function loadDriveWorkbook(client:drive_v3.Drive,spreadsheetId:string){
   const xlsxMime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   let response;
   try{
