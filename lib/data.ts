@@ -1,13 +1,13 @@
 import { supabase } from "./supabase";
 import type { Role } from "./permissions";
 
-export type AppJob={id:string;jobId:string;client:string;clientId:string|null;vehicles:number;date:string;time:string;technician:string;technicianId:string|null;tssOfficer:string;tssOfficerId:string|null;status:string;location:string};
+export type AppJob={id:string;jobId:string;client:string;clientId:string|null;vehicles:number;date:string;time:string;technician:string;technicianId:string|null;tssOfficer:string;tssOfficerId:string|null;status:string;location:string;vehicleMake:string;priority:string;description:string;notes:string};
 export type AppTask={id:string;taskKey:string;title:string;assignee:string;assigneeId:string|null;due:string;status:string;relatedJobId:string|null};
 
 type ClientLookup={id:string;name:string|null};
 type ProfileLookup={id:string;full_name:string|null};
 type TaskProfileLookup={id:string;full_name:string|null};
-type JobLookupRow={id:string;job_id:string;client_id:string|null;number_of_vehicles:number;scheduled_date:string;scheduled_time:string|null;assigned_technician_id:string|null;tss_officer_id:string|null;tss_officer_name:string|null;status:string;location:string|null};
+type JobLookupRow={id:string;job_id:string;client_id:string|null;number_of_vehicles:number;scheduled_date:string;scheduled_time:string|null;assigned_technician_id:string|null;tss_officer_id:string|null;tss_officer_name:string|null;status:string;location:string|null;vehicle_make:string|null;priority:string|null;description:string|null;notes:string|null};
 type TaskLookupRow={id:string;task_id:string;title:string;assigned_to:string|null;due_at:string|null;status:string;related_job_id:string|null};
 
 function formatDate(value:string|null){
@@ -30,7 +30,7 @@ async function loadAllRows<T>(loader:(from:number,to:number)=>any):Promise<T[]>{
 export async function loadJobs(role?:Role,userId?:string):Promise<AppJob[]>{
   if(!supabase) return [];
   const rows=await loadAllRows<JobLookupRow>((from,to)=>{
-    let query=supabase!.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,scheduled_time,assigned_technician_id,tss_officer_id,tss_officer_name,status,location").order("scheduled_date",{ascending:true}).range(from,to);
+    let query=supabase!.from("jobs").select("id,job_id,client_id,number_of_vehicles,scheduled_date,scheduled_time,assigned_technician_id,tss_officer_id,tss_officer_name,status,location,vehicle_make,priority,description,notes").order("scheduled_date",{ascending:true}).range(from,to);
     if(role==="Field Technician" && userId) query=query.eq("assigned_technician_id",userId);
     return query;
   });
@@ -54,7 +54,7 @@ export async function loadJobs(role?:Role,userId?:string):Promise<AppJob[]>{
   const clientMap=new Map<string,string|null>(clientRows.map((c:ClientLookup)=>[c.id,c.name]));
   const techMap=new Map<string,string|null>(techRows.map((t:ProfileLookup)=>[t.id,t.full_name]));
   const officerMap=new Map<string,string|null>((officers??[]).map((t:ProfileLookup)=>[t.id,t.full_name]));
-  return rows.map(j=>({id:j.id,jobId:j.job_id,client:clientMap.get(j.client_id ?? "")||"—",clientId:j.client_id||null,vehicles:j.number_of_vehicles,date:formatDate(j.scheduled_date),time:j.scheduled_time??"",technician:techMap.get(j.assigned_technician_id ?? "")||"Unassigned",technicianId:j.assigned_technician_id||null,tssOfficer:officerMap.get(j.tss_officer_id ?? "")||j.tss_officer_name||"—",tssOfficerId:j.tss_officer_id||null,status:j.status,location:j.location||""}));
+  return rows.map(j=>({id:j.id,jobId:j.job_id,client:clientMap.get(j.client_id ?? "")||"—",clientId:j.client_id||null,vehicles:j.number_of_vehicles,date:formatDate(j.scheduled_date),time:j.scheduled_time??"",technician:techMap.get(j.assigned_technician_id ?? "")||"Unassigned",technicianId:j.assigned_technician_id||null,tssOfficer:officerMap.get(j.tss_officer_id ?? "")||j.tss_officer_name||"—",tssOfficerId:j.tss_officer_id||null,status:j.status,location:j.location||"",vehicleMake:j.vehicle_make||"",priority:j.priority||"Normal",description:j.description||"",notes:j.notes||""}));
 }
 
 export async function loadTasks():Promise<AppTask[]>{
@@ -68,7 +68,7 @@ export async function loadTasks():Promise<AppTask[]>{
   return rows.map(t=>({id:t.id,taskKey:t.task_id,title:t.title,assignee:map.get(t.assigned_to ?? "")||"Unassigned",assigneeId:t.assigned_to||null,due:t.due_at?new Date(t.due_at).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—",status:t.status,relatedJobId:t.related_job_id||null}));
 }
 
-export async function createJob(input:{clientId?:string|null;numberOfVehicles:number;scheduledDate:string;scheduledTime?:string;location?:string;vehicleMake?:string;priority?:string;description?:string;tssOfficerId?:string|null},role:Role){
+export async function createJob(input:{clientId?:string|null;numberOfVehicles:number;scheduledDate:string;scheduledTime?:string;location?:string;vehicleMake?:string;priority?:string;description?:string;notes?:string;tssOfficerId?:string|null;assignedTechnicianId?:string|null},role:Role){
   if(!supabase) return null;
   if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to create a job.");
   const stamp=new Date().toISOString().slice(0,10).replaceAll("-","");
@@ -76,15 +76,19 @@ export async function createJob(input:{clientId?:string|null;numberOfVehicles:nu
   if(latestError) throw latestError;
   const next=(latest?.[0]?.job_id?.split("-").pop()?Number(latest[0].job_id.split("-").pop()):0)+1;
   const jobId=`BB-JOB-${stamp}-${String(next).padStart(3,"0")}`;
-  const {error}=await supabase.from("jobs").insert({job_id:jobId,client_id:input.clientId||null,number_of_vehicles:Math.max(1,input.numberOfVehicles),scheduled_date:input.scheduledDate,scheduled_time:input.scheduledTime||null,location:input.location||null,vehicle_make:input.vehicleMake||null,tss_officer_id:input.tssOfficerId||null,priority:input.priority||"Normal",description:input.description||null,status:"Pending"});
+  const {data:created,error}=await supabase.from("jobs").insert({job_id:jobId,client_id:input.clientId||null,number_of_vehicles:Math.max(1,input.numberOfVehicles),scheduled_date:input.scheduledDate,scheduled_time:input.scheduledTime||null,location:input.location||null,vehicle_make:input.vehicleMake||null,tss_officer_id:input.tssOfficerId||null,priority:input.priority||"Normal",description:input.description||null,notes:input.notes||null,status:"Pending"}).select("id").single();
   if(error) throw error;
+  if(input.assignedTechnicianId){
+    if(role!=="Super Admin") throw new Error("Only Super Admin can assign a technician.");
+    await assignJobToTechnician(String(created.id),input.assignedTechnicianId,role);
+  }
   return jobId;
 }
 
 export async function updateJob(id:string,input:Record<string,unknown>,role:Role){
   if(!supabase) return;
   if(role!=="Super Admin"&&role!=="TSS Officer") throw new Error("You are not permitted to edit this job.");
-  if(role!=="Super Admin" && Object.prototype.hasOwnProperty.call(input,"assigned_technician_id")) throw new Error("TSS Officer cannot change Techie Assigned.");
+  if(Object.prototype.hasOwnProperty.call(input,"assigned_technician_id")) throw new Error("Use the Technician Assignment action to change Techie Assigned.");
   const {error}=await supabase.from("jobs").update(input).eq("id",id);
   if(error) throw error;
 }
