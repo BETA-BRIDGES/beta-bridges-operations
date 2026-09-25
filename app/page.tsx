@@ -457,7 +457,7 @@ export default function Home(){
   reportStartDate.setHours(0,0,0,0);
   const inReportRange=(value:string|null|undefined)=>{
     if(!value) return false;
-    const date=new Date(\`\${value}T00:00:00\`);
+    const date=new Date(`${value}T00:00:00`);
     if(Number.isNaN(date.getTime())) return false;
     return reportWindowDays===null || (date>=reportStartDate&&date<=reportEndDate);
   };
