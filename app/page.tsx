@@ -59,6 +59,7 @@ export default function Home(){
   const [tablePage,setTablePage]=useState(1);
   const [jobStatusFilter,setJobStatusFilter]=useState("");
   const [jobAssignmentFilter,setJobAssignmentFilter]=useState("all");
+  const [reportDays,setReportDays]=useState("30");
   const pageSize=50;
   const [busy,setBusy]=useState(false);
   const [modal,setModal]=useState(false);
@@ -448,6 +449,74 @@ export default function Home(){
   const dashboardOpenExceptions=legacyExceptions.filter(x=>x.status==="Open").length;
   const dashboardTechWorkload=technicians.map(t=>({id:t.id,name:t.fullName,activeJobs:technicianWorkload(t.id)})).sort((a,b)=>b.activeJobs-a.activeJobs);
 
+  const reportWindowDays=reportDays==="all"?null:Number(reportDays);
+  const reportEndDate=new Date();
+  reportEndDate.setHours(23,59,59,999);
+  const reportStartDate=new Date(reportEndDate);
+  if(reportWindowDays!==null) reportStartDate.setDate(reportEndDate.getDate()-reportWindowDays+1);
+  reportStartDate.setHours(0,0,0,0);
+  const inReportRange=(value:string|null|undefined)=>{
+    if(!value) return false;
+    const date=new Date(\`\${value}T00:00:00\`);
+    if(Number.isNaN(date.getTime())) return false;
+    return reportWindowDays===null || (date>=reportStartDate&&date<=reportEndDate);
+  };
+  const inReportDateTimeRange=(value:string|null|undefined)=>{
+    if(!value) return false;
+    const date=new Date(value);
+    if(Number.isNaN(date.getTime())) return false;
+    return reportWindowDays===null || (date>=reportStartDate&&date<=reportEndDate);
+  };
+
+  const reportJobs=dashboardJobs.filter(j=>inReportRange(j.dateIso));
+  const reportVehicles=managedVehicles.filter(v=>inReportRange(v.scheduledDate||null));
+  const reportCompletions=completions.filter(c=>inReportRange(c.date));
+  const reportDeviceCompletions=reportCompletions.filter(c=>Boolean(c.deviceId.trim()));
+  const reportExceptionCompletions=reportCompletions.filter(c=>!c.deviceId.trim());
+  const reportScheduledVehicles=reportJobs.reduce((sum,j)=>sum+j.vehicles,0);
+  const reportCompletedVehicles=reportVehicles.filter(v=>v.status==="Completed").length;
+  const reportPendingVehicles=reportVehicles.filter(v=>v.status!=="Completed").length;
+  const reportUnassignedProjects=reportJobs.filter(j=>!j.technicianId).length;
+  const reportUnassignedVehicles=reportJobs.filter(j=>!j.technicianId).reduce((sum,j)=>sum+j.vehicles,0);
+  const reportCompletionRate=reportScheduledVehicles?Math.round((reportCompletedVehicles/reportScheduledVehicles)*100):0;
+  const reportOpenTasks=tasks.filter(t=>!["Completed","Cancelled"].includes(t.status));
+  const reportOverdueTasks=reportOpenTasks.filter(t=>t.dueAt&&new Date(t.dueAt).getTime()<Date.now());
+  const reportIssuedStock=stock.filter(s=>inReportRange(s.dateIssued)).length;
+  const reportInstalledStock=stock.filter(s=>inReportRange(s.dateInstalled)).length;
+  const reportAwaitingInstall=stock.filter(s=>s.dateIssued&&!s.dateInstalled).length;
+  const reportChargesTotal=charges.reduce((sum,c)=>sum+c.logistics+c.accommodation+c.swap+c.deinstallation+c.reinstallation+c.healthCheck+c.simReplacement+c.others,0);
+  const reportPendingCharges=charges.filter(c=>/PENDING/i.test(c.status||"")).reduce((sum,c)=>sum+c.logistics+c.accommodation+c.swap+c.deinstallation+c.reinstallation+c.healthCheck+c.simReplacement+c.others,0);
+
+  const reportTrend=Array.from({length:14},(_,offset)=>{
+    const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-(13-offset));
+    const key=d.toISOString().slice(0,10);
+    const label=d.toLocaleDateString("en-GB",{day:"2-digit",month:"short"});
+    const dayJobs=reportJobs.filter(j=>j.dateIso===key);
+    const dayVehicles=reportVehicles.filter(v=>v.scheduledDate===key);
+    const dayCompletions=reportDeviceCompletions.filter(c=>c.date===key).length;
+    return {key,label,projects:dayJobs.length,vehicles:dayJobs.reduce((sum,j)=>sum+j.vehicles,0),vehiclesCompleted:dayVehicles.filter(v=>v.status==="Completed").length,completions:dayCompletions};
+  });
+  const maxTrend=Math.max(1,...reportTrend.map(x=>Math.max(x.vehicles,x.vehiclesCompleted,x.completions)));
+
+  const reportTechRows=technicians.map(t=>{
+    const jobs=reportJobs.filter(j=>j.technicianId===t.id);
+    const vehicles=reportVehicles.filter(v=>v.technicianId===t.id);
+    return {id:t.id,name:t.fullName,projects:jobs.length,planned:jobs.reduce((sum,j)=>sum+j.vehicles,0),completed:vehicles.filter(v=>v.status==="Completed").length,pending:vehicles.filter(v=>v.status!=="Completed").length};
+  }).sort((a,b)=>b.completed-a.completed||b.projects-a.projects||a.name.localeCompare(b.name));
+
+  const clientAnalytics=Array.from(new Set(reportJobs.map(j=>j.client).filter(x=>x&&x!=="—"))).map(client=>{
+    const jobs=reportJobs.filter(j=>j.client===client);
+    const vehicles=reportVehicles.filter(v=>v.client===client);
+    return {client,projects:jobs.length,planned:jobs.reduce((sum,j)=>sum+j.vehicles,0),completed:vehicles.filter(v=>v.status==="Completed").length};
+  }).sort((a,b)=>b.planned-a.planned||a.client.localeCompare(b.client)).slice(0,8);
+
+  const taskHealth=reportOpenTasks.map(t=>({
+    ...t,
+    relatedJob:jobs.find(j=>j.id===t.relatedJobId)?.jobId||"—",
+    overdue:Boolean(t.dueAt&&new Date(t.dueAt).getTime()<Date.now())
+  })).sort((a,b)=>Number(b.overdue)-Number(a.overdue));
+
+  
 
   if(authLoading) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Loading Operations Portal</h1><p className="muted">Checking account and permissions…</p></section></main>;
   if(!hasSession) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Operations Portal</h1><p className="muted">Welcome to the Beta Bridges Operations Management Portal.</p><div className="section"><div className="card"><h3>Existing user</h3><p className="muted">Sign in with your Beta Bridges account.</p><a className="btn primary" href="/login">Login</a></div><div className="card" style={{marginTop:12}}><h3>New user</h3><p className="muted">Create an account and request an operational role.</p><a className="btn" href="/signup">Sign up</a></div></div></section></main>;
@@ -464,21 +533,87 @@ export default function Home(){
     <main className="main"><header className="topbar"><div><h1 className="page-title">{moduleLabel(module)}</h1><div className="muted">Central operations workspace</div></div><div className="topbar-actions">{supabase?<div className="user-chip"><strong>{profile?.full_name||profile?.email}</strong><span>{role}</span></div>:<select value={demoRole} onChange={e=>{setDemoRole(e.target.value as Role);setModule("Dashboard")}} className="role-select">{ROLES.map(r=><option key={r}>{r}</option>)}</select>}{supabase&&<button className="btn" onClick={signOut}>Sign out</button>}</div></header>
       {profileError&&<div className="login-error page-error">{profileError}</div>}
 
-      {module==="Dashboard"&&<><section className="grid">
-        <div className="card"><div className="muted">Scheduled projects</div><div className="stat">{dashboardJobs.length}</div></div>
-        <div className="card"><div className="muted">Vehicles scheduled</div><div className="stat">{dashboardVehiclesScheduled}</div></div>
-        <div className="card"><div className="muted">Pending projects</div><div className="stat">{dashboardPending}</div></div>
-        <div className="card"><div className="muted">In progress</div><div className="stat">{dashboardInProgress}</div></div>
-        <div className="card"><div className="muted">Completed projects</div><div className="stat">{dashboardCompleted}</div></div>
-        <div className="card"><div className="muted">Vehicles completed</div><div className="stat">{dashboardVehiclesCompleted}</div></div>
-        <div className="card"><div className="muted">Unassigned projects</div><div className="stat">{dashboardUnassigned}</div></div>
-        <div className="card"><div className="muted">Open tasks</div><div className="stat">{dashboardOpenTasks}</div></div>
-      </section>
-      {role==="Super Admin"&&dashboardOpenExceptions>0&&<section className="card"><div className="section-head"><div><h3>Legacy reconciliation</h3><p className="muted">Open legacy Daily Job Done exceptions requiring source review.</p></div><span className="badge warn">{dashboardOpenExceptions} Open</span></div></section>}
-      <section className="section two">
-        <div className="card"><div className="section-head"><div><h3>Job queue</h3><p className="muted">Upcoming and active projects.</p></div><span className="muted">{dashboardJobs.length} total</span></div><Table headers={["Job ID","Client","Vehicles","Technician","Date","Status"]}>{dashboardJobs.slice(0,12).map(j=><tr key={j.id}><td>{j.jobId}</td><td>{j.client}</td><td>{j.vehicles}</td><td>{j.technician}</td><td>{j.date}</td><td>{j.status}</td></tr>)}</Table></div>
-        <div className="card"><div className="section-head"><div><h3>Technician workload</h3><p className="muted">Active projects by Field Technician.</p></div></div><Table headers={["Technician","Active projects"]}>{dashboardTechWorkload.length?dashboardTechWorkload.map(t=><tr key={t.id}><td>{t.name}</td><td>{t.activeJobs}</td></tr>):<tr><td colSpan={2}>No active technicians.</td></tr>}</Table><h3 style={{marginTop:20}}>Open tasks</h3>{tasks.filter(t=>!["Completed","Cancelled"].includes(t.status)).slice(0,6).map(t=><div className="task" key={t.id}><strong>{t.title}</strong><span>{t.assignee} · {t.due}</span><em>{t.status}</em></div>)}</div>
-      </section></>}
+      {module==="Dashboard"&&<>
+        <section className="report-toolbar card">
+          <div>
+            <h3 style={{margin:"0 0 4px"}}>Operational reporting</h3>
+            <p className="muted">Workflow performance across jobs, vehicles, completions, stock, tasks and financial charges.</p>
+          </div>
+          <label className="report-range">Reporting window
+            <select value={reportDays} onChange={e=>setReportDays(e.target.value)}>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="all">All available data</option>
+            </select>
+          </label>
+        </section>
+
+        <section className="grid analytics-grid">
+          <div className="card"><div className="muted">Projects in window</div><div className="stat">{reportJobs.length}</div><div className="metric-note">{dashboardPending} pending overall</div></div>
+          <div className="card"><div className="muted">Vehicles scheduled</div><div className="stat">{reportScheduledVehicles}</div><div className="metric-note">{reportUnassignedVehicles} on unassigned projects</div></div>
+          <div className="card"><div className="muted">Vehicles completed</div><div className="stat">{reportCompletedVehicles}</div><div className="metric-note">{reportCompletionRate}% of scheduled vehicles</div></div>
+          <div className="card"><div className="muted">Recorded completions</div><div className="stat">{reportCompletions.length}</div><div className="metric-note">{reportDeviceCompletions.length} device-linked</div></div>
+          <div className="card"><div className="muted">Awaiting installation</div><div className="stat">{reportAwaitingInstall}</div><div className="metric-note">{reportIssuedStock} stock issued in window</div></div>
+          <div className="card"><div className="muted">Open / overdue tasks</div><div className="stat">{reportOpenTasks.length}</div><div className="metric-note">{reportOverdueTasks.length} overdue</div></div>
+          <div className="card"><div className="muted">Charges recorded</div><div className="stat">{money(reportChargesTotal)}</div><div className="metric-note">{money(reportPendingCharges)} pending</div></div>
+          <div className="card"><div className="muted">Unassigned projects</div><div className="stat">{reportUnassignedProjects}</div><div className="metric-note">{dashboardUnassigned} overall</div></div>
+        </section>
+
+        <section className="section two">
+          <div className="card">
+            <div className="section-head"><div><h3>Workflow funnel</h3><p className="muted">Current project progression plus vehicle-level completion.</p></div></div>
+            <div className="funnel-list">
+              <div><span>Pending</span><strong>{dashboardPending}</strong></div><div className="progress"><i style={{width:`${dashboardJobs.length?Math.round((dashboardPending/dashboardJobs.length)*100):0}%`}}/></div>
+              <div><span>Assigned</span><strong>{dashboardJobs.filter(j=>j.technicianId).length}</strong></div><div className="progress"><i style={{width:`${dashboardJobs.length?Math.round((dashboardJobs.filter(j=>j.technicianId).length/dashboardJobs.length)*100):0}%`}}/></div>
+              <div><span>In progress</span><strong>{dashboardInProgress}</strong></div><div className="progress"><i style={{width:`${dashboardJobs.length?Math.round((dashboardInProgress/dashboardJobs.length)*100):0}%`}}/></div>
+              <div><span>Completed</span><strong>{dashboardCompleted}</strong></div><div className="progress"><i style={{width:`${dashboardJobs.length?Math.round((dashboardCompleted/dashboardJobs.length)*100):0}%`}}/></div>
+            </div>
+            <div className="workflow-summary"><span>Vehicle pipeline</span><strong>{dashboardVehiclesCompleted}/{dashboardVehiclesScheduled} completed</strong><span>{reportPendingVehicles} vehicle records still open in window</span></div>
+          </div>
+
+          <div className="card">
+            <div className="section-head"><div><h3>Task health</h3><p className="muted">Open work requiring operational attention.</p></div><span className={reportOverdueTasks.length?"badge warn":"badge"}>{reportOverdueTasks.length} overdue</span></div>
+            {taskHealth.length?taskHealth.slice(0,7).map(t=><div className="task" key={t.id}><strong>{t.title}</strong><span>{t.assignee} · {t.due} · {t.relatedJob}</span><em className={t.overdue?"task-overdue":""}>{t.overdue?"Overdue":t.status}</em></div>):<p className="muted">No open tasks.</p>}
+          </div>
+        </section>
+
+        <section className="section two">
+          <div className="card">
+            <div className="section-head"><div><h3>14-day activity trend</h3><p className="muted">Scheduled vehicles compared with completed vehicle records and device-linked completion records.</p></div></div>
+            <div className="mini-bars">{reportTrend.map(row=><div className="mini-bar-row" key={row.key}><span>{row.label}</span><div className="mini-track"><i title={`Scheduled: ${row.vehicles}`} style={{width:`${Math.round((row.vehicles/maxTrend)*100)}%`}}/></div><strong>{row.vehicles}</strong><div className="mini-track secondary"><i title={`Completed: ${row.vehiclesCompleted}`} style={{width:`${Math.round((row.vehiclesCompleted/maxTrend)*100)}%`}}/></div><strong>{row.vehiclesCompleted}</strong></div>)}</div>
+            <div className="trend-legend"><span>Scheduled</span><span>Completed vehicle records</span><span>Device-linked completions</span></div>
+          </div>
+
+          <div className="card">
+            <div className="section-head"><div><h3>Technician workload & output</h3><p className="muted">Projects and vehicle records attributable to each Field Technician.</p></div></div>
+            <Table headers={["Technician","Projects","Planned vehicles","Completed","Pending"]}>{reportTechRows.length?reportTechRows.map(t=><tr key={t.id}><td>{t.name}</td><td>{t.projects}</td><td>{t.planned}</td><td>{t.completed}</td><td>{t.pending}</td></tr>):<tr><td colSpan={5}>No Field Technicians.</td></tr>}</Table>
+          </div>
+        </section>
+
+        <section className="section two">
+          <div className="card">
+            <div className="section-head"><div><h3>Client workload</h3><p className="muted">Top clients by scheduled vehicle volume in the reporting window.</p></div></div>
+            <Table headers={["Client","Projects","Planned vehicles","Completed"]}>{clientAnalytics.length?clientAnalytics.map(x=><tr key={x.client}><td>{x.client}</td><td>{x.projects}</td><td>{x.planned}</td><td>{x.completed}</td></tr>):<tr><td colSpan={4}>No client activity in this window.</td></tr>}</Table>
+          </div>
+
+          <div className="card">
+            <div className="section-head"><div><h3>Data quality & exceptions</h3><p className="muted">Items that should be reviewed before operational reporting is treated as complete.</p></div></div>
+            <div className="exception-list">
+              <div><span>Completion records without DEVICE ID</span><strong>{reportExceptionCompletions.length}</strong></div>
+              <div><span>Open legacy exceptions</span><strong>{dashboardOpenExceptions}</strong></div>
+              <div><span>Stock records without missing identifiers</span><strong>{stock.filter(s=>s.deviceId.trim()&&s.simId.trim()).length}</strong></div>
+              <div><span>Installed stock records in window</span><strong>{reportInstalledStock}</strong></div>
+            </div>
+            <p className="muted" style={{marginTop:12}}>The completion exception count includes legacy summary rows that do not carry a physical Device ID.</p>
+          </div>
+        </section>
+
+        {role==="Super Admin"&&<section className="section card">
+          <div className="section-head"><div><h3>Recent audit activity</h3><p className="muted">Latest recorded operational changes.</p></div><span className="muted">{auditLogs.length} loaded</span></div>
+          <Table headers={["Time","Actor","Module","Action","Record"]}>{auditLogs.slice(0,10).map(a=><tr key={a.id}><td>{a.createdAt}</td><td>{a.actor}</td><td>{a.module}</td><td>{a.action}</td><td>{a.recordId}</td></tr>)}</Table>
+        </section>}
+      </>}
 
       {module==="Daily Job Listing"&&<section>
         <section className="grid">
