@@ -31,8 +31,6 @@ export default function Home(){
   const [authLoading,setAuthLoading]=useState(Boolean(supabase));
   const [profile,setProfile]=useState<Profile|null>(null);
   const [profileError,setProfileError]=useState("");
-  const [bootstrapName,setBootstrapName]=useState("");
-  const [bootstrapBusy,setBootstrapBusy]=useState(false);
   const [demoRole,setDemoRole]=useState<Role>("Super Admin");
   const role:Role=profile?.role??(supabase?"Viewer":demoRole);
   const [module,setModule]=useState("Dashboard");
@@ -275,17 +273,6 @@ export default function Home(){
     try{await googleRequest("/api/google/disconnect","POST");setGoogleMessage("Google Sheets disconnected.");await loadGoogleStatus();}catch(error){setGoogleMessage(error instanceof Error?error.message:"Unable to disconnect Google Sheets.");}finally{setGoogleBusy(false)}
   }
 
-  async function bootstrap(){
-    if(!supabase||!bootstrapName.trim()) return;
-    setBootstrapBusy(true);setProfileError("");
-    const {data:{session}}=await supabase.auth.getSession();
-    if(!session){router.replace("/login");return}
-    const {data,error}=await supabase.rpc("bootstrap_first_super_admin",{p_full_name:bootstrapName.trim(),p_email:session.user.email||""});
-    setBootstrapBusy(false);
-    if(error){setProfileError(error.message);return}
-    if(data){setProfile(data as Profile)}
-  }
-
   function openCreate(target:string){
     setModule(target);setEditing(false);setFormMode("record");setSelectedId("");
     const defaults:Record<string,FormState>={
@@ -386,7 +373,7 @@ export default function Home(){
   const filteredTasks=tasks.filter(t=>matches([t.taskKey,t.title,t.assignee,t.due,t.status,jobs.find(j=>j.id===t.relatedJobId)?.jobId]));
 
   if(authLoading) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Loading Operations Portal</h1><p className="muted">Checking account and permissions…</p></section></main>;
-  if(supabase&&!profile) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Complete administrator setup</h1><p className="muted">Your authenticated account has no Beta Bridges profile yet. The first profile created here becomes the initial Super Admin.</p><label>Full name<input value={bootstrapName} onChange={e=>setBootstrapName(e.target.value)} placeholder="Your full name"/></label>{profileError&&<div className="login-error">{profileError}</div>}<button className="btn primary" disabled={bootstrapBusy||!bootstrapName.trim()} onClick={bootstrap}>{bootstrapBusy?"Setting up…":"Create initial Super Admin"}</button></section></main>;
+  if(supabase&&!profile) return <main className="login-page"><section className="login-card"><div className="brand">BETA BRIDGES</div><h1>Account status</h1><p className="muted">This account does not have an active Beta Bridges profile yet.</p>{profileError&&<div className="login-error">{profileError}</div>}<p className="auth-link"><a href="/pending">View account status</a> · <a href="/login">Return to sign in</a></p></section></main>;
 
   return <div className="app">
     <aside className="sidebar"><div className="brand">BETA BRIDGES</div><div className="side-note">Operations Management</div><nav className="nav">
