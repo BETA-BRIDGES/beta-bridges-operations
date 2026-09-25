@@ -745,6 +745,9 @@ async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:st
 
 async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"techieWeeklyActivity",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
+  const {data:profiles,error:profileError}=await supabase.from("profiles").select("id,full_name").eq("role","Field Technician");
+  if(profileError) throw profileError;
+  const technicianMap=new Map<string,string>((profiles??[]).map((p:any)=>[norm(p.full_name),String(p.id)]));
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
     const weekRows=findWeeklyRows(sheet.rows);
     const headerCandidate=findWeeklyHeaderInfo(sheet.rows,weekRows[0]?.i??-1);
@@ -770,6 +773,7 @@ async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:str
         if(!value){summary.skipped++;continue;}
         payloads.push({
           legacy_source_key:sourceKey("techieWeeklyActivity",sheet.title,(item.i+1)*1000+col),
+          technician_id:technicianMap.get(norm(technician))||null,
           technician_name:technician,
           week_start:date,
           projects_completed:Math.max(0,Math.trunc(numeric(value))),
