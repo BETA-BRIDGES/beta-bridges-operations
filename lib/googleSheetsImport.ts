@@ -766,7 +766,9 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
           source_payload:raw
         });
         summary.exceptions=(summary.exceptions||0)+1;
-        summary.skipped++;
+        // Exception rows are intentionally excluded from the imported completion
+        // count, but they are not "skipped": they are preserved in
+        // legacy_device_exceptions for review/audit.
         continue;
       }
 
