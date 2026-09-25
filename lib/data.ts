@@ -80,7 +80,11 @@ export async function createJob(input:{clientId?:string|null;numberOfVehicles:nu
   if(error) throw error;
   if(input.assignedTechnicianId){
     if(role!=="Super Admin") throw new Error("Only Super Admin can assign a technician.");
-    await assignJobToTechnician(String(created.id),input.assignedTechnicianId,role);
+    const {error:assignmentError}=await supabase.rpc("assign_job_to_technician",{
+      p_job_id:String(created.id),
+      p_technician_id:input.assignedTechnicianId
+    });
+    if(assignmentError) throw assignmentError;
   }
   return jobId;
 }
