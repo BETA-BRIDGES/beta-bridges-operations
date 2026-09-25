@@ -97,7 +97,7 @@ export async function createTask(input:{title:string;description?:string;dueAt?:
   return taskId;
 }
 
-export async function updateTaskStatus(id:string,status:"Pending"|"In Progress"|"Completed"|"Cancelled"|"Overdue",role:Role){
+export async function updateTaskStatus(id:string,status:"Pending"|"Acknowledged"|"In Progress"|"Completed"|"Cancelled"|"Overdue",role:Role){
   if(!supabase) return;
   if(!(role==="Super Admin"||role==="Field Technician")) throw new Error("You are not permitted to update this task.");
   const {error}=await supabase.from("tasks").update({status,completed_at:status==="Completed"?new Date().toISOString():null}).eq("id",id);

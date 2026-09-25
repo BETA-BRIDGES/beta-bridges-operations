@@ -144,11 +144,21 @@ export async function createReminder(input:{title:string;details?:string;userId?
   if(error) throw error;
   return data.id as string;
 }
-export async function markReminderSent(id:string,role:Role){
-  if(!supabase) return;
-  if(role!=="Super Admin") throw new Error("Only Super Admin can mark reminders as sent.");
-  const {error}=await supabase.from("reminders").update({sent_at:new Date().toISOString()}).eq("id",id);
+export async function deliverDueReminders(){
+  if(!supabase) return 0;
+  const {data,error}=await supabase.rpc("deliver_due_reminders");
   if(error) throw error;
+  return Number(data??0);
+}
+export async function deliverReminderNow(id:string,role:Role){
+  if(!supabase) return false;
+  if(role!=="Super Admin") throw new Error("Only Super Admin can deliver reminders immediately.");
+  const {data,error}=await supabase.rpc("deliver_reminder_now",{p_reminder_id:id});
+  if(error) throw error;
+  return Boolean(data);
+}
+export async function markReminderSent(id:string,role:Role){
+  return deliverReminderNow(id,role);
 }
 
 export async function markNotificationRead(id:string){
@@ -203,7 +213,12 @@ export async function updateCharge(id:string,input:Record<string,unknown>,role:R
 export async function createCompletion(input:{jobId?:string|null;vehicleId?:string|null;deviceId:string;date:string;installer?:string;location?:string;client?:string;vehicleDetails?:string;vehicleMake?:string;tssOfficer?:string;remarks?:string},role:Role){
   if(!supabase) return null;
   if(!(role==="Super Admin"||role==="TSS Officer")) throw new Error("You are not permitted to create a Daily Job Done record.");
-  const {data,error}=await supabase.from("job_completions").insert({job_id:input.jobId||null,vehicle_id:input.vehicleId||null,device_id:input.deviceId.trim(),completion_date:input.date||null,installer:input.installer||null,location:input.location||null,client:input.client||null,vehicle_details:input.vehicleDetails||null,vehicle_make:input.vehicleMake||null,status:"Completed",tss_officer:input.tssOfficer||null,remarks:input.remarks||null}).select("id").single();
+  if(!input.jobId || !input.vehicleId) throw new Error("A Job and Vehicle are required for a new Daily Job Done record.");
+  if(!input.deviceId.trim()) throw new Error("DEVICE ID is required for a new Daily Job Done record.");
+  const {data:vehicle,error:vehicleError}=await supabase.from("vehicles").select("id,job_id").eq("id",input.vehicleId).maybeSingle();
+  if(vehicleError) throw vehicleError;
+  if(!vehicle || vehicle.job_id!==input.jobId) throw new Error("The selected vehicle does not belong to the selected job.");
+  const {data,error}=await supabase.from("job_completions").insert({job_id:input.jobId,vehicle_id:input.vehicleId,device_id:input.deviceId.trim(),completion_date:input.date||null,installer:input.installer||null,location:input.location||null,client:input.client||null,vehicle_details:input.vehicleDetails||null,vehicle_make:input.vehicleMake||null,status:"Completed",tss_officer:input.tssOfficer||null,remarks:input.remarks||null}).select("id").single();
   if(error) throw error;
   return data.id as string;
 }
