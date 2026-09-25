@@ -71,6 +71,8 @@ export default function Home(){
   const unreadCount=notifications.filter(n=>!n.readAt).length;
   function setField(name:string,value:string){setForm(p=>({...p,[name]:value}))}
   function closeModal(){setModal(false);setEditing(false);setFormMode("record");setSelectedId("");setSelectedTaskComments([]);setVehicleEditingId("")}
+  function openVehicleCreate(){setModule("Vehicle Management");setEditing(false);setFormMode("vehicle-record");setSelectedId("");setVehicleEditingId("");setForm({jobId:"",registration:"",vehicleMake:"",vehicleDetails:"",vehicleStatus:"Pending"});setModal(true)}
+  function openVehicleEdit(vehicle:VehicleRecord){setModule("Vehicle Management");setEditing(true);setFormMode("vehicle-record");setSelectedId(vehicle.id);setVehicleEditingId(vehicle.id);setForm({jobId:vehicle.jobId,registration:vehicle.registration,vehicleMake:vehicle.vehicleMake,vehicleDetails:vehicle.vehicleDetails,vehicleStatus:vehicle.status});setModal(true)}
   function openUserEdit(user:UserRecord){setModule("Administration");setEditing(true);setFormMode("user");setSelectedId(user.id);setForm({role:user.role,active:String(user.active),moduleAccess:user.moduleAccess===null?MODULES.join("||"):user.moduleAccess.join("||")});setModal(true)}
   function openUserCreate(){setModule("Administration");setEditing(false);setFormMode("create-user");setSelectedId("");setForm({fullName:"",email:"",password:"",role:"Field Technician",moduleAccess:MODULES.join("||")});setModal(true)}
   function openReminderCreate(){setModule("Administration");setEditing(false);setFormMode("reminder");setSelectedId("");setForm({title:"",details:"",userId:profile?.id||"",remindAt:""});setModal(true)}
