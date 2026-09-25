@@ -10,6 +10,7 @@ type ImportSummary = {
   imported: number;
   skipped: number;
   errors: string[];
+  exceptions?: number;
 };
 
 const expectedHeaders: Record<string, string[]> = {
