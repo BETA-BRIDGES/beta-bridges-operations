@@ -10,6 +10,7 @@ export type WeeklyRecord={id:string;technician:string;technicianId:string;week:s
 export type UserRecord={id:string;fullName:string;email:string;role:Role;active:boolean;moduleAccess:string[]|null};
 export type NotificationRecord={id:string;title:string;message:string;type:string;readAt:string|null;createdAt:string;relatedTaskId:string|null};
 export type ReminderRecord={id:string;title:string;details:string;userId:string|null;user:string;remindAt:string;sentAt:string|null;createdAt:string};
+export type LegacyDeviceExceptionRecord={id:string;sourceSheet:string;sourceRowNumber:number;sourceKey:string;exceptionType:string;status:string;deviceId:string;date:string;installer:string;location:string;client:string;vehicleDetails:string;vehicleMake:string;legacyStatus:string;tssOfficer:string;resolutionNote:string};
 
 type ChargeClientLookup={id:string;name:string|null};
 type WeeklyProfileLookup={id:string;full_name:string|null};
@@ -164,6 +165,41 @@ export async function loadNotifications(userId:string):Promise<NotificationRecor
   const {data,error}=await supabase.from("notifications").select("id,title,message,notification_type,read_at,created_at,related_task_id").eq("user_id",userId).order("created_at",{ascending:false}).limit(50);
   if(error) throw error;
   return (data??[]).map(n=>({id:n.id,title:n.title,message:n.message,type:n.notification_type,readAt:n.read_at??null,createdAt:new Date(n.created_at).toLocaleString("en-GB"),relatedTaskId:n.related_task_id??null}));
+}
+
+export async function loadLegacyDeviceExceptions():Promise<LegacyDeviceExceptionRecord[]>{
+  if(!supabase) return [];
+  const {data,error}=await supabase.from("legacy_device_exceptions")
+    .select("id,source_sheet,source_row_number,legacy_source_key,exception_type,status,device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,legacy_status,tss_officer,resolution_note")
+    .order("status",{ascending:true}).order("completion_date",{ascending:false}).limit(500);
+  if(error) throw error;
+  return (data??[]).map(x=>({
+    id:String(x.id),
+    sourceSheet:String(x.source_sheet??""),
+    sourceRowNumber:Number(x.source_row_number??0),
+    sourceKey:String(x.legacy_source_key??""),
+    exceptionType:String(x.exception_type??""),
+    status:String(x.status??"Open"),
+    deviceId:String(x.device_id??""),
+    date:safeDate(x.completion_date),
+    installer:String(x.installer??""),
+    location:String(x.location??""),
+    client:String(x.client??""),
+    vehicleDetails:String(x.vehicle_details??""),
+    vehicleMake:String(x.vehicle_make??""),
+    legacyStatus:String(x.legacy_status??""),
+    tssOfficer:String(x.tss_officer??""),
+    resolutionNote:String(x.resolution_note??"")
+  }));
+}
+export async function updateLegacyDeviceException(id:string,input:{status:"Open"|"Ignored"|"Resolved";resolutionNote?:string},role:Role){
+  if(!supabase) return;
+  if(role!=="Super Admin") throw new Error("Only Super Admin can manage legacy Device-ID exceptions.");
+  const {error}=await supabase.from("legacy_device_exceptions").update({
+    status:input.status,
+    resolution_note:input.resolutionNote?.trim()||null
+  }).eq("id",id);
+  if(error) throw error;
 }
 
 export async function loadReminders(userId:string):Promise<ReminderRecord[]>{
