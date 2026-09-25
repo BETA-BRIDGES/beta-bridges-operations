@@ -4,11 +4,11 @@ import { getGoogleClientForUser } from "./googleServer";
 type Connection={module:string;spreadsheet_id:string;sheet_name:string|null;active:boolean};
 
 const headers={
-  dailyJobListing:["CLIENT NAMES","INSURANCE/PERSONAL","NUMBERS OF JOB","VEHICLE MAKE","TIME","LOCATION","TSS OFFICER"],
-  dailyJobDone:["DEVICE ID","DATE","INSTALLER NAME","LOCATION","NAME","VEH DETAILS","VEH MAKE","STATUS","TSS OFFICER"],
-  usedStock:["NETWORK","DEVICE TYPES","DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS","DEVICE ID","SIM ID","DATE COLLECTED","OPS REMARK - RECEIVED OR NOT RECEIVED","OPS CORRECTIONS - DEVICE & SIM","DATE/MONTH ISSUED TO TECHNICIAN","DATE INSTALLED","INSTALLER NAME","LOCATION","CLIENT NAME","VEHICLE DETAILS","VEHICLE MAKE","OTHER ISSUES"],
-  miscellaneousCharges:["S/N","CUSTOMER/ CLIENT NAME","LOCATION","LOGISTICS","ACCOMMODATION","SWAP","DEINSTALLATION","REINSTALLATION","HEALTH CHECK","SIM REPLACEMENT","OTHERS","PAID OR APPROVED"],
-  clientData:["S/N","CUSTOMER/CLIENT NAME","CONTACT PERSON","CUSTOMER CATEGORY","PHONE NUMBER","EMAIL ADDRESS","LOCATION"]
+  dailyJobListing:["CLIENT NAMES","INSURANCE/PERSONAL","NUMBERS OF JOB","VEHICLE MAKE","TIME","LOCATION","TSS OFFICER","BB SYNC ID"],
+  dailyJobDone:["DEVICE ID","DATE","INSTALLER NAME","LOCATION","NAME","VEH DETAILS","VEH MAKE","STATUS","TSS OFFICER","BB SYNC ID"],
+  usedStock:["NETWORK","DEVICE TYPES","DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS","DEVICE ID","SIM ID","DATE COLLECTED","OPS REMARK - RECEIVED OR NOT RECEIVED","OPS CORRECTIONS - DEVICE & SIM","DATE/MONTH ISSUED TO TECHNICIAN","DATE INSTALLED","INSTALLER NAME","LOCATION","CLIENT NAME","VEHICLE DETAILS","VEHICLE MAKE","OTHER ISSUES","BB SYNC ID"],
+  miscellaneousCharges:["S/N","CUSTOMER/ CLIENT NAME","LOCATION","LOGISTICS","ACCOMMODATION","SWAP","DEINSTALLATION","REINSTALLATION","HEALTH CHECK","SIM REPLACEMENT","OTHERS","PAID OR APPROVED","BB SYNC ID"],
+  clientData:["S/N","CUSTOMER/CLIENT NAME","CONTACT PERSON","CUSTOMER CATEGORY","PHONE NUMBER","EMAIL ADDRESS","LOCATION","BB SYNC ID"]
 } as const;
 
 function text(value:unknown){return value==null?"":String(value);}
@@ -95,7 +95,7 @@ async function selectAllRows(
 
 async function buildRows(module:string,supabase:any,dateKey?:string){
   if(module==="dailyJobListing"){
-    const data=await selectAllRows(supabase,"jobs","job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id",(q:any)=>{
+    const data=await selectAllRows(supabase,"jobs","id,job_id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id",(q:any)=>{
       if(dateKey) q=q.eq("scheduled_date",dateKey);
       return q.order("scheduled_date",{ascending:true});
     });
@@ -110,42 +110,42 @@ async function buildRows(module:string,supabase:any,dateKey?:string){
     const om=new Map((officers??[]).map((x:any)=>[x.id,text(x.full_name)]));
     return [headers.dailyJobListing,...(data??[]).map((x:any)=>[
       cm.get(x.client_id??"")||"—",text(x.job_type),number(x.number_of_vehicles),text(x.vehicle_make),
-      text(x.scheduled_time),text(x.location),om.get(x.tss_officer_id??"")||""
+      text(x.scheduled_time),text(x.location),om.get(x.tss_officer_id??"")||"",text(x.id)
     ])];
   }
   if(module==="dailyJobDone"){
-    const data=await selectAllRows(supabase,"job_completions","device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer",(q:any)=>{
+    const data=await selectAllRows(supabase,"job_completions","id,device_id,completion_date,installer,location,client,vehicle_details,vehicle_make,status,tss_officer",(q:any)=>{
       if(dateKey) q=q.eq("completion_date",dateKey);
       return q.order("completion_date",{ascending:false});
     });
-    return [headers.dailyJobDone,...(data??[]).map((x:any)=>[text(x.device_id),text(x.completion_date),text(x.installer),text(x.location),text(x.client),text(x.vehicle_details),text(x.vehicle_make),text(x.status),text(x.tss_officer)])];
+    return [headers.dailyJobDone,...(data??[]).map((x:any)=>[text(x.device_id),text(x.completion_date),text(x.installer),text(x.location),text(x.client),text(x.vehicle_details),text(x.vehicle_make),text(x.status),text(x.tss_officer),text(x.id)])];
   }
   if(module==="usedStock"){
-    const data=await selectAllRows(supabase,"stock_transactions","network,device_type,device_status,device_id,sim_id,date_collected,operations_remark,operations_correction,date_issued,date_installed,installer,location,client,vehicle_details,vehicle_make,other_issues",(q:any)=>{
+    const data=await selectAllRows(supabase,"stock_transactions","id,network,device_type,device_status,device_id,sim_id,date_collected,operations_remark,operations_correction,date_issued,date_installed,installer,location,client,vehicle_details,vehicle_make,other_issues",(q:any)=>{
       if(dateKey) q=q.eq("date_installed",dateKey);
       return q.order("date_installed",{ascending:false});
     });
     return [headers.usedStock,...(data??[]).map((x:any)=>[
       text(x.network),text(x.device_type),text(x.device_status),text(x.device_id),text(x.sim_id),text(x.date_collected),
       text(x.operations_remark),text(x.operations_correction),text(x.date_issued),text(x.date_installed),text(x.installer),
-      text(x.location),text(x.client),text(x.vehicle_details),text(x.vehicle_make),text(x.other_issues)
+      text(x.location),text(x.client),text(x.vehicle_details),text(x.vehicle_make),text(x.other_issues),text(x.id)
     ])];
   }
   if(module==="miscellaneousCharges"){
-    const data=await selectAllRows(supabase,"miscellaneous_charges","charge_id,client_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved",(q:any)=>q.order("created_at",{ascending:false}));
+    const data=await selectAllRows(supabase,"miscellaneous_charges","id,charge_id,client_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved",(q:any)=>q.order("created_at",{ascending:false}));
     const ids=Array.from(new Set((data??[]).map((x:any)=>x.client_id).filter(Boolean)));
     const {data:clients,error:ce}=ids.length?await supabase.from("clients").select("id,name").in("id",ids):{data:[],error:null};
     if(ce) throw ce;
     const cm=new Map((clients??[]).map((x:any)=>[x.id,text(x.name)]));
     return [headers.miscellaneousCharges,...(data??[]).map((x:any,i:number)=>[
       i+1,cm.get(x.client_id??"")||"—",text(x.location),number(x.logistics),number(x.accommodation),number(x.swap),
-      number(x.deinstallation),number(x.reinstallation),number(x.health_check),number(x.sim_replacement),number(x.others),text(x.paid_or_approved)
+      number(x.deinstallation),number(x.reinstallation),number(x.health_check),number(x.sim_replacement),number(x.others),text(x.paid_or_approved),text(x.id)
     ])];
   }
   if(module==="clientData"){
-    const data=await selectAllRows(supabase,"clients","client_code,name,contact_person,category,phone,email,location",(q:any)=>q.order("name"));
+    const data=await selectAllRows(supabase,"clients","id,client_code,name,contact_person,category,phone,email,location",(q:any)=>q.order("name"));
     return [headers.clientData,...(data??[]).map((x:any,i:number)=>[
-      i+1,text(x.name),text(x.contact_person),text(x.category),text(x.phone),text(x.email),text(x.location)
+      i+1,text(x.name),text(x.contact_person),text(x.category),text(x.phone),text(x.email),text(x.location),text(x.id)
     ])];
   }
   if(module==="techieWeeklyActivity"){
