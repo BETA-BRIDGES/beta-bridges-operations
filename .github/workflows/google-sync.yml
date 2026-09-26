@@ -1,0 +1,25 @@
+name: Google Sheets Sync
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Google Sheets sync
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          response=$(curl -sS -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://beta-bridges-operations.vercel.app/api/cron/google-sync")
+          status=$(printf '%s\n' "$response" | tail -n1)
+          body=$(printf '%s\n' "$response" | sed '$d')
+          echo "$body"
+          if [ "$status" -ge 400 ]; then
+            echo "Sync endpoint returned HTTP $status"
+            exit 1
+          fi
