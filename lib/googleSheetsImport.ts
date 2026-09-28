@@ -484,7 +484,7 @@ async function upsertChunks(
 }
 async function cleanupLegacyCollisionKeys(supabase:any,table:string,keys:string[],errors:string[],label:string){
   const unique=Array.from(new Set(keys));
-  for(let start=0;start<unique.length;start+=500){
+  for(let start=0;start<unique.length;start+=100){
     const chunk=unique.slice(start,start+500);
     const {error}=await supabase.from(table).delete().in("legacy_source_key",chunk);
     if(error) errors.push(label+" cleanup: "+error.message);
