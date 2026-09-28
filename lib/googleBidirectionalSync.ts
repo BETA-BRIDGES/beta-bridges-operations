@@ -227,7 +227,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
       let phHash=await platformHash(module,supabase,tabs);
 
       const {data:state,error:stateError}=await supabase.from("google_sync_states")
-        .select("last_sheet_hash,last_platform_hash,last_direction,conflict_count")
+        .select("last_sheet_hash,last_platform_hash,last_direction,last_error,conflict_count")
         .eq("module",module).eq("spreadsheet_id",connection.spreadsheet_id).eq("sheet_scope","ALL").maybeSingle();
       if(stateError) throw stateError;
 
