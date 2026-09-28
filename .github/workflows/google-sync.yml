@@ -1,12 +1,9 @@
 name: Google Sheets Sync
-# one-time execution after production reconciliation deployment
 
 on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
-  push:
-    branches: ["main"]
 
 jobs:
   sync:
