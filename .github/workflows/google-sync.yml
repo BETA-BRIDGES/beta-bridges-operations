@@ -1,12 +1,9 @@
 name: Google Sheets Sync
-# final forced reconciliation
 
 on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
-  push:
-    branches: ["main"]
 
 jobs:
   sync:
@@ -18,7 +15,7 @@ jobs:
         run: |
           response=$(curl -sS -w "\n%{http_code}" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "https://beta-bridges-operations.vercel.app/api/cron/google-sync?force=sheet_to_platform")
+            "https://beta-bridges-operations.vercel.app/api/cron/google-sync")
           status=$(printf '%s\n' "$response" | tail -n1)
           body=$(printf '%s\n' "$response" | sed '$d')
           echo "$body"
