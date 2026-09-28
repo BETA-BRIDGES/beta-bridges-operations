@@ -8,7 +8,8 @@ type SheetMeta={title:string;hidden?:boolean;sheetId?:number};
 type Connection={module:string;spreadsheet_id:string;sheet_name:string|null;active:boolean};
 
 const DATE_MODULES=new Set(["dailyJobListing","dailyJobDone","usedStock"]);
-const ROW_ID_MODULES=new Set(["clientData","dailyJobListing","dailyJobDone","usedStock","miscellaneousCharges"]);\nconst FORCED_RECONCILIATION_MARKER="__FORCED_SHEET_TO_PLATFORM_RECONCILIATION_PENDING__";
+const ROW_ID_MODULES=new Set(["clientData","dailyJobListing","dailyJobDone","usedStock","miscellaneousCharges"]);
+const FORCED_RECONCILIATION_MARKER="__FORCED_SHEET_TO_PLATFORM_RECONCILIATION_PENDING__";
 
 function text(value:unknown){return value==null?"":String(value);}
 function col(n:number){let out="";while(n>0){const r=(n-1)%26;out=String.fromCharCode(65+r)+out;n=Math.floor((n-1)/26);}return out;}
