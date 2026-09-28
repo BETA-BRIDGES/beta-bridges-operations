@@ -1,12 +1,9 @@
 name: Google Sheets Sync
-# one-time normal sync verification
 
 on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
-  push:
-    branches: ["main"]
 
 jobs:
   sync:
