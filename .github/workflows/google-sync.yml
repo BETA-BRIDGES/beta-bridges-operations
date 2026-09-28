@@ -1,4 +1,5 @@
 name: Google Sheets Sync
+# one-time execution after production reconciliation deployment
 
 on:
   schedule:
