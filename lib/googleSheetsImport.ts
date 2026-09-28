@@ -820,7 +820,7 @@ async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:st
     if(!info)continue;summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"]||raw["NAME"];if(!name&&!raw["LOCATION"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CUSTOMER/ CLIENT NAME"]||x.raw["CUSTOMER/CLIENT NAME"]||x.raw["CLIENT NAME"]),clients);
-  const payloads=rawRows.map(x=>{const raw=x.raw;const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];return{legacy_source_key:sourceKey("miscellaneousCharges",x.title,x.rowNumber),...(validSyncId(raw[SYNC_ID_HEADER]) ? {id:validSyncId(raw[SYNC_ID_HEADER])} : {}),charge_id:"BB-LEGACY-CHG-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(name))||null,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),paid_or_approved:raw["PAID OR APPROVED"]||"Pending"};});
+  const payloads=rawRows.map(x=>{const raw=x.raw;const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];return{legacy_source_key:sourceKey("miscellaneousCharges",x.title,x.rowNumber),charge_id:"BB-LEGACY-CHG-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(name))||null,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),paid_or_approved:raw["PAID OR APPROVED"]||"Pending"};});
   summary.imported=await upsertChunks(supabase,"miscellaneous_charges",payloads,"charge_id",summary.errors,"Miscellaneous Charges import");return summary;
 }
 
@@ -863,7 +863,7 @@ async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:str
       }
     }
   }
-  summary.imported=await upsertChunks(supabase,"technician_weekly_activity",payloads,"technician_id,week_start",summary.errors,"Weekly Activity import");
+  await cleanupLegacyCollisionKeys(supabase,"technician_weekly_activity",payloads.map(row=>String(row.legacy_source_key||"")).filter(Boolean),summary.errors,"Weekly Activity legacy-key cleanup");\n  summary.imported=await upsertChunks(supabase,"technician_weekly_activity",payloads,"technician_id,week_start",summary.errors,"Weekly Activity import");
   return summary;
 }
 
