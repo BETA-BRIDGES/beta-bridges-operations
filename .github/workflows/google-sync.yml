@@ -1,9 +1,12 @@
 name: Google Sheets Sync
+# final controlled one-time reconciliation
 
 on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+  push:
+    branches: ["main"]
 
 jobs:
   sync:
