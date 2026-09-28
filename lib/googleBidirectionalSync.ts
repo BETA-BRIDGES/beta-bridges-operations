@@ -194,6 +194,54 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
   for(const connection of (connections??[]) as Connection[]){
     const module=connection.module;
     try{
+      // Handle an explicitly queued one-time Sheet → Platform reconciliation
+      // before calculating full platform/sheet snapshots. Snapshotting large
+      // modules first can consume the function time budget and prevent later
+      // modules from being processed.
+      const {data:queuedState,error:queuedStateError}=await supabase.from("google_sync_states")
+        .select("last_direction,last_error,conflict_count")
+        .eq("module",module).eq("spreadsheet_id",connection.spreadsheet_id).eq("sheet_scope","ALL").maybeSingle();
+      if(queuedStateError) throw queuedStateError;
+
+      const isQueuedReconciliation =
+        queuedState?.last_direction === "sheet_to_platform" &&
+        queuedState?.last_error === "One-time Google Sheet → Platform reconciliation queued.";
+
+      if(isQueuedReconciliation){
+        const summary=await importLegacyGoogleModule(userId,module);
+        if(summary.errors.length){
+          throw new Error("Queued Google Sheet reconciliation failed: "+summary.errors.slice(0,10).join(" | "));
+        }
+        if(summary.rows>0 && summary.imported===0){
+          throw new Error("Queued Google Sheet reconciliation imported 0 rows from a non-empty source workbook. Export was blocked.");
+        }
+
+        // Re-export only after the Sheet → Platform import has completed.
+        await exportModule(userId,module,connection);
+
+        const queuedTabs=await listSheets(sheets,connection.spreadsheet_id);
+        const queuedWorkbook=await loadDriveWorkbook(drive,connection.spreadsheet_id);
+        const queuedSheetHash=await sheetSnapshot(module,queuedWorkbook,queuedTabs);
+        const queuedPlatformHash=await platformHash(module,supabase,queuedTabs);
+        const queuedNow=new Date().toISOString();
+
+        await supabase.from("google_sync_states").upsert({
+          module,
+          spreadsheet_id:connection.spreadsheet_id,
+          sheet_scope:"ALL",
+          last_sheet_hash:queuedSheetHash,
+          last_platform_hash:queuedPlatformHash,
+          last_sync_at:queuedNow,
+          last_direction:"sheet_to_platform",
+          last_error:null,
+          conflict_count:Number(queuedState?.conflict_count||0),
+          updated_at:queuedNow
+        },{onConflict:"module,spreadsheet_id,sheet_scope"});
+
+        results[module]={ok:true,rows:summary.imported,direction:"sheet_to_platform"};
+        continue;
+      }
+
       let tabs=await listSheets(sheets,connection.spreadsheet_id);
       let workbook=await loadDriveWorkbook(drive,connection.spreadsheet_id);
       let shHash=await sheetSnapshot(module,workbook,tabs);
