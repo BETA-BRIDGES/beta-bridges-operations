@@ -10,7 +10,8 @@ export async function GET(request:Request){
     return NextResponse.json({error:"Unauthorized cron request."},{status:401});
   }
   try{
-    const results=await runScheduledGoogleBidirectionalSync();
+    const forceSheetToPlatform=new URL(request.url).searchParams.get("force") === "sheet_to_platform";
+    const results=await runScheduledGoogleBidirectionalSync({forceSheetToPlatform});
     const failed=Object.entries(results).filter(([,value]:any)=>!value?.ok);
     return NextResponse.json({
       ok:failed.length===0,
