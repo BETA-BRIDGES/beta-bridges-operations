@@ -468,7 +468,7 @@ async function upsertChunks(
 
   const unique=new Map<string,any>();
   const passthrough:any[]=[...sourcePassthrough];
-  for(const row of [...byLegacySource.values()]){
+  for(const row of Array.from(byLegacySource.values())){
     const key=row?.[onConflict];
     if(key==null || String(key)==="") passthrough.push(row);
     else unique.set(String(key),row);
