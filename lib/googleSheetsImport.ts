@@ -449,19 +449,26 @@ async function upsertChunks(
   let imported=0;
 
   for(let start=0;start<withId.length;start+=chunkSize){
-    const chunk=withId.slice(start,start+chunkSize).map(row=>{
-      const copy={...row};
-      delete copy[onConflict];
-      return copy;
-    });
+    const chunk=withId.slice(start,start+chunkSize).map(row=>({...row}));
     const {error}=await supabase.from(table).upsert(chunk,{onConflict:"id"});
     if(error) errors.push(label+" stable-ID batch "+(start+1)+"-"+(start+chunk.length)+": "+error.message);
     else imported+=chunk.length;
   }
 
-  const unique=new Map<string,any>();
-  const passthrough:any[]=[];
+  // Prevent collisions on the legacy source-key unique index as well as
+  // the module's natural key. This matters for imports whose onConflict key
+  // is not legacy_source_key (for example technician_id,week_start).
+  const byLegacySource=new Map<string,any>();
+  const sourcePassthrough:any[]=[];
   for(const row of withoutId){
+    const sourceKeyValue=row?.legacy_source_key;
+    if(sourceKeyValue==null || String(sourceKeyValue)==="") sourcePassthrough.push(row);
+    else byLegacySource.set(String(sourceKeyValue),row);
+  }
+
+  const unique=new Map<string,any>();
+  const passthrough:any[]=[...sourcePassthrough];
+  for(const row of [...byLegacySource.values()]){
     const key=row?.[onConflict];
     if(key==null || String(key)==="") passthrough.push(row);
     else unique.set(String(key),row);
@@ -774,7 +781,7 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
 
       payloads.push({
         legacy_source_key:source,
-        id:validSyncId(raw[SYNC_ID_HEADER])||undefined,
+        ...(validSyncId(raw[SYNC_ID_HEADER]) ? {id:validSyncId(raw[SYNC_ID_HEADER])} : {}),
         device_id:raw["DEVICE ID"]||null,
         completion_date:parseDate(raw["DATE"],tabDate),
         installer:raw["INSTALLER NAME"]||null,
