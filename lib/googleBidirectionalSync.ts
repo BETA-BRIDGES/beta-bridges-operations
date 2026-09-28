@@ -180,7 +180,7 @@ async function exportModule(userId:string,module:string,connection:Connection){
   return rowsWritten;
 }
 
-export async function syncGoogleSheetsBidirectional(userId:string){
+export async function syncGoogleSheetsBidirectional(userId:string, options?: { forceSheetToPlatform?: boolean }){
   const {supabase,client}=await getGoogleClientForUser(userId);
   const drive=google.drive({version:"v3",auth:client});
   const sheets=google.sheets({version:"v4",auth:client});
@@ -205,15 +205,37 @@ export async function syncGoogleSheetsBidirectional(userId:string){
       if(stateError) throw stateError;
 
       let direction:"bootstrap"|"sheet_to_platform"|"platform_to_sheet"|"conflict"|"noop"="noop";
+      const forceSheetToPlatform=Boolean(options?.forceSheetToPlatform);
 
-      if(!state){
-        await importLegacyGoogleModule(userId,module);
+      if(forceSheetToPlatform){
+        const summary=await importLegacyGoogleModule(userId,module);
+        if(summary.errors.length){
+          throw new Error("Forced Google Sheet reconciliation failed: "+summary.errors.slice(0,10).join(" | "));
+        }
+        if(summary.rows>0 && summary.imported===0){
+          throw new Error("Forced Google Sheet reconciliation imported 0 rows from a non-empty source workbook. Export was blocked to protect the Google Sheet data.");
+        }
+        direction="sheet_to_platform";
+      }else if(!state){
+        const summary=await importLegacyGoogleModule(userId,module);
+        if(summary.errors.length){
+          throw new Error("Initial Google Sheet import failed: "+summary.errors.slice(0,10).join(" | "));
+        }
+        if(summary.rows>0 && summary.imported===0){
+          throw new Error("Initial Google Sheet import imported 0 rows from a non-empty source workbook. Export was blocked.");
+        }
         await exportModule(userId,module,connection);
         direction="bootstrap";
       }else if(shHash===state.last_sheet_hash && phHash===state.last_platform_hash){
         direction="noop";
       }else if(shHash!==state.last_sheet_hash && phHash===state.last_platform_hash){
-        await importLegacyGoogleModule(userId,module);
+        const summary=await importLegacyGoogleModule(userId,module);
+        if(summary.errors.length){
+          throw new Error("Google Sheet change detected, but import failed: "+summary.errors.slice(0,10).join(" | "));
+        }
+        if(summary.rows>0 && summary.imported===0){
+          throw new Error("Google Sheet change detected, but 0 rows were imported from a non-empty source workbook. Export was blocked.");
+        }
         await exportModule(userId,module,connection);
         direction="sheet_to_platform";
       }else if(shHash===state.last_sheet_hash && phHash!==state.last_platform_hash){
@@ -259,7 +281,7 @@ export async function syncGoogleSheetsBidirectional(userId:string){
   return results;
 }
 
-export async function runScheduledGoogleBidirectionalSync(){
+export async function runScheduledGoogleBidirectionalSync(options?: { forceSheetToPlatform?: boolean }){
   const supabase=getServiceSupabase();
   const {data:profiles,error:pe}=await supabase.from("profiles").select("id,role,active,created_at").eq("role","Super Admin").eq("active",true).order("created_at",{ascending:true}).limit(10);
   if(pe) throw pe;
@@ -269,5 +291,5 @@ export async function runScheduledGoogleBidirectionalSync(){
   const tokenUserIds=new Set((tokenRows??[]).map((x:any)=>String(x.user_id)));
   const owner=profiles.find((p:any)=>tokenUserIds.has(String(p.id)));
   if(!owner) throw new Error("No active Super Admin has a connected Google account for scheduled synchronization.");
-  return syncGoogleSheetsBidirectional(String(owner.id));
+  return syncGoogleSheetsBidirectional(String(owner.id), options);
 }
