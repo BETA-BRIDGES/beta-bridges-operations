@@ -655,7 +655,7 @@ async function importClientData(supabase:any,client:drive_v3.Drive,spreadsheetId
           if(!name){summary.skipped++;continue;}
           payloads.push({
             legacy_source_key:legacyClientKey(name),
-            id:validSyncId(row[findHeaderColumn(headers,[SYNC_ID_HEADER])])||undefined,
+            ...(validSyncId(row[findHeaderColumn(headers,[SYNC_ID_HEADER])]) ? {id:validSyncId(row[findHeaderColumn(headers,[SYNC_ID_HEADER])])} : {}),
             client_code:null,
             name,
             contact_person:contactCol>=0?text(row[contactCol])||null:null,
@@ -715,7 +715,7 @@ async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:strin
   for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["CLIENT NAMES"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw,fallbackDate:tabDate});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CLIENT NAMES"]),clients);
-  const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];if(collisionSlugs.has(slug(x.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobListing",x.title,x.rowNumber));return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber,collisionSlugs),id:validSyncId(x.raw[SYNC_ID_HEADER])||undefined,job_id:"BB-LEGACY-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,legacy_client_name:x.raw["CLIENT NAMES"]||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
+  const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];if(collisionSlugs.has(slug(x.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobListing",x.title,x.rowNumber));return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber,collisionSlugs),...(validSyncId(x.raw[SYNC_ID_HEADER]) ? {id:validSyncId(x.raw[SYNC_ID_HEADER])} : {}),job_id:"BB-LEGACY-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,legacy_client_name:x.raw["CLIENT NAMES"]||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
   summary.imported=await upsertChunks(supabase,"jobs",payloads,"legacy_source_key",summary.errors,"Job import");
   if(!summary.errors.length) await cleanupLegacyCollisionKeys(supabase,"jobs",collisionCleanupKeys,summary.errors,"Job import");
   return summary;
@@ -798,7 +798,7 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
 async function importStock(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
   const summary:ImportSummary={module:"usedStock",sheets:0,rows:0,imported:0,skipped:0,errors:[]}; const payloads:any[]=[];
   for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){const info=headerInfo(sheet.rows,expectedHeaders.usedStock);if(!info)continue;summary.sheets++;
-    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["DEVICE ID"]&&!raw["SIM ID"]){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("usedStock",sheet.title,i+1),id:validSyncId(raw[SYNC_ID_HEADER])||undefined,network:raw["NETWORK"]||null,device_type:raw["DEVICE TYPES"]||null,device_status:raw["DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS"]||null,device_id:raw["DEVICE ID"]||null,sim_id:raw["SIM ID"]||null,date_collected:parseDate(raw["DATE COLLECTED"]),operations_remark:raw["OPS REMARK - RECEIVED OR NOT RECEIVED"]||null,operations_correction:raw["OPS CORRECTIONS - DEVICE & SIM"]||null,date_issued:parseDate(raw["DATE/MONTH ISSUED TO TECHNICIAN"]),date_installed:parseDate(raw["DATE INSTALLED"]),installer:raw["INSTALLER NAME"]||null,location:raw["LOCATION"]||null,client:raw["CLIENT NAME"]||null,vehicle_details:raw["VEHICLE DETAILS"]||raw["VEH DETAILS"]||null,vehicle_make:raw["VEHICLE MAKE"]||null,other_issues:raw["OTHER ISSUES"]||null});}}
+    for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["DEVICE ID"]&&!raw["SIM ID"]){summary.skipped++;continue;}payloads.push({legacy_source_key:sourceKey("usedStock",sheet.title,i+1),...(validSyncId(raw[SYNC_ID_HEADER]) ? {id:validSyncId(raw[SYNC_ID_HEADER])} : {}),network:raw["NETWORK"]||null,device_type:raw["DEVICE TYPES"]||null,device_status:raw["DEVICE STATUS- USED / UNUSED-SIGHTED / UNUSED-UNSIGHTED; OTHERS"]||null,device_id:raw["DEVICE ID"]||null,sim_id:raw["SIM ID"]||null,date_collected:parseDate(raw["DATE COLLECTED"]),operations_remark:raw["OPS REMARK - RECEIVED OR NOT RECEIVED"]||null,operations_correction:raw["OPS CORRECTIONS - DEVICE & SIM"]||null,date_issued:parseDate(raw["DATE/MONTH ISSUED TO TECHNICIAN"]),date_installed:parseDate(raw["DATE INSTALLED"]),installer:raw["INSTALLER NAME"]||null,location:raw["LOCATION"]||null,client:raw["CLIENT NAME"]||null,vehicle_details:raw["VEHICLE DETAILS"]||raw["VEH DETAILS"]||null,vehicle_make:raw["VEHICLE MAKE"]||null,other_issues:raw["OTHER ISSUES"]||null});}}
   summary.imported=await upsertChunks(supabase,"stock_transactions",payloads,"legacy_source_key",summary.errors,"Used Stock import");return summary;
 }
 
@@ -813,8 +813,8 @@ async function importCharges(supabase:any,client:drive_v3.Drive,spreadsheetId:st
     if(!info)continue;summary.sheets++;
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);const name=raw["CUSTOMER CLIENT NAME"]||raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"]||raw["NAME"];if(!name&&!raw["LOCATION"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CUSTOMER/ CLIENT NAME"]||x.raw["CUSTOMER/CLIENT NAME"]||x.raw["CLIENT NAME"]),clients);
-  const payloads=rawRows.map(x=>{const raw=x.raw;const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];return{legacy_source_key:sourceKey("miscellaneousCharges",x.title,x.rowNumber),id:validSyncId(raw[SYNC_ID_HEADER])||undefined,charge_id:"BB-LEGACY-CHG-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(name))||null,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),paid_or_approved:raw["PAID OR APPROVED"]||"Pending"};});
-  summary.imported=await upsertChunks(supabase,"miscellaneous_charges",payloads,"legacy_source_key",summary.errors,"Miscellaneous Charges import");return summary;
+  const payloads=rawRows.map(x=>{const raw=x.raw;const name=raw["CUSTOMER/ CLIENT NAME"]||raw["CUSTOMER/CLIENT NAME"]||raw["CLIENT NAME"];return{legacy_source_key:sourceKey("miscellaneousCharges",x.title,x.rowNumber),...(validSyncId(raw[SYNC_ID_HEADER]) ? {id:validSyncId(raw[SYNC_ID_HEADER])} : {}),charge_id:"BB-LEGACY-CHG-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(name))||null,location:raw["LOCATION"]||null,logistics:numeric(raw["LOGISTICS"]),accommodation:numeric(raw["ACCOMMODATION"]),swap:numeric(raw["SWAP"]),deinstallation:numeric(raw["DEINSTALLATION"]),reinstallation:numeric(raw["REINSTALLATION"]),health_check:numeric(raw["HEALTH CHECK"]),sim_replacement:numeric(raw["SIM REPLACEMENT"]),others:numeric(raw["OTHERS"]),paid_or_approved:raw["PAID OR APPROVED"]||"Pending"};});
+  summary.imported=await upsertChunks(supabase,"miscellaneous_charges",payloads,"charge_id",summary.errors,"Miscellaneous Charges import");return summary;
 }
 
 async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:string):Promise<ImportSummary>{
@@ -856,7 +856,7 @@ async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:str
       }
     }
   }
-  summary.imported=await upsertChunks(supabase,"technician_weekly_activity",payloads,"legacy_source_key",summary.errors,"Weekly Activity import");
+  summary.imported=await upsertChunks(supabase,"technician_weekly_activity",payloads,"technician_id,week_start",summary.errors,"Weekly Activity import");
   return summary;
 }
 
