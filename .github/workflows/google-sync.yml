@@ -19,7 +19,7 @@ jobs:
           status=$(printf '%s\n' "$response" | tail -n1)
           body=$(printf '%s\n' "$response" | sed '$d')
           echo "$body"
-          if [ "$status" -ge 400 ]; then
+          if [ "$status" -ge 300 ]; then
             echo "Sync endpoint returned HTTP $status"
             exit 1
           fi
