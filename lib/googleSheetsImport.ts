@@ -863,7 +863,8 @@ async function importWeekly(supabase:any,client:drive_v3.Drive,spreadsheetId:str
       }
     }
   }
-  await cleanupLegacyCollisionKeys(supabase,"technician_weekly_activity",payloads.map(row=>String(row.legacy_source_key||"")).filter(Boolean),summary.errors,"Weekly Activity legacy-key cleanup");\n  summary.imported=await upsertChunks(supabase,"technician_weekly_activity",payloads,"technician_id,week_start",summary.errors,"Weekly Activity import");
+  await cleanupLegacyCollisionKeys(supabase,"technician_weekly_activity",payloads.map(row=>String(row.legacy_source_key||"")).filter(Boolean),summary.errors,"Weekly Activity legacy-key cleanup");
+  summary.imported=await upsertChunks(supabase,"technician_weekly_activity",payloads,"technician_id,week_start",summary.errors,"Weekly Activity import");
   return summary;
 }
 
