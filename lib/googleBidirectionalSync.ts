@@ -8,7 +8,7 @@ type SheetMeta={title:string;hidden?:boolean;sheetId?:number};
 type Connection={module:string;spreadsheet_id:string;sheet_name:string|null;active:boolean};
 
 const DATE_MODULES=new Set(["dailyJobListing","dailyJobDone","usedStock"]);
-const ROW_ID_MODULES=new Set(["clientData","dailyJobListing","dailyJobDone","usedStock","miscellaneousCharges"]);
+const ROW_ID_MODULES=new Set(["clientData","dailyJobListing","dailyJobDone","usedStock","miscellaneousCharges"]);\nconst FORCED_RECONCILIATION_MARKER="__FORCED_SHEET_TO_PLATFORM_RECONCILIATION_PENDING__";
 
 function text(value:unknown){return value==null?"":String(value);}
 function col(n:number){let out="";while(n>0){const r=(n-1)%26;out=String.fromCharCode(65+r)+out;n=Math.floor((n-1)/26);}return out;}
@@ -191,57 +191,35 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
   if(error) throw error;
 
   const results:Record<string,any>={};
+  if(Boolean(options?.forceSheetToPlatform)){
+    for(const connection of (connections??[]) as Connection[]){
+      const module=connection.module;
+      try{
+        const summary=await importLegacyGoogleModule(userId,module);
+        if(summary.errors.length) throw new Error("Forced Google Sheet reconciliation failed: "+summary.errors.slice(0,10).join(" | "));
+        if(summary.rows>0 && summary.imported===0) throw new Error("Forced Google Sheet reconciliation imported 0 rows from a non-empty source workbook.");
+        const now=new Date().toISOString();
+        await supabase.from("google_sync_states").upsert({
+          module,spreadsheet_id:connection.spreadsheet_id,sheet_scope:"ALL",
+          last_sheet_hash:FORCED_RECONCILIATION_MARKER,last_platform_hash:FORCED_RECONCILIATION_MARKER,
+          last_sync_at:now,last_direction:"sheet_to_platform",last_error:null,updated_at:now
+        },{onConflict:"module,spreadsheet_id,sheet_scope"});
+        await supabase.from("google_connections").update({last_sync_at:now,last_error:null,updated_at:now}).eq("module",module);
+        results[module]={ok:true,rows:summary.imported,direction:"sheet_to_platform",isolated:true};
+      }catch(error){
+        const message=error instanceof Error?error.message:"Forced Google Sheet reconciliation failed.";
+        const now=new Date().toISOString();
+        await supabase.from("google_connections").update({last_error:message,updated_at:now}).eq("module",module);
+        await supabase.from("google_sync_states").upsert({module,spreadsheet_id:connection.spreadsheet_id,sheet_scope:"ALL",last_direction:"sheet_to_platform",last_error:message,updated_at:now},{onConflict:"module,spreadsheet_id,sheet_scope"});
+        results[module]={ok:false,rows:0,error:message,direction:"sheet_to_platform",isolated:true};
+      }
+    }
+    return results;
+  }
+
   for(const connection of (connections??[]) as Connection[]){
     const module=connection.module;
     try{
-      // Handle an explicitly queued one-time Sheet → Platform reconciliation
-      // before calculating full platform/sheet snapshots. Snapshotting large
-      // modules first can consume the function time budget and prevent later
-      // modules from being processed.
-      const {data:queuedState,error:queuedStateError}=await supabase.from("google_sync_states")
-        .select("last_direction,last_error,conflict_count")
-        .eq("module",module).eq("spreadsheet_id",connection.spreadsheet_id).eq("sheet_scope","ALL").maybeSingle();
-      if(queuedStateError) throw queuedStateError;
-
-      const isQueuedReconciliation =
-        queuedState?.last_direction === "sheet_to_platform" &&
-        queuedState?.last_error === "One-time Google Sheet → Platform reconciliation queued.";
-
-      if(isQueuedReconciliation){
-        const summary=await importLegacyGoogleModule(userId,module);
-        if(summary.errors.length){
-          throw new Error("Queued Google Sheet reconciliation failed: "+summary.errors.slice(0,10).join(" | "));
-        }
-        if(summary.rows>0 && summary.imported===0){
-          throw new Error("Queued Google Sheet reconciliation imported 0 rows from a non-empty source workbook. Export was blocked.");
-        }
-
-        // Re-export only after the Sheet → Platform import has completed.
-        await exportModule(userId,module,connection);
-
-        const queuedTabs=await listSheets(sheets,connection.spreadsheet_id);
-        const queuedWorkbook=await loadDriveWorkbook(drive,connection.spreadsheet_id);
-        const queuedSheetHash=await sheetSnapshot(module,queuedWorkbook,queuedTabs);
-        const queuedPlatformHash=await platformHash(module,supabase,queuedTabs);
-        const queuedNow=new Date().toISOString();
-
-        await supabase.from("google_sync_states").upsert({
-          module,
-          spreadsheet_id:connection.spreadsheet_id,
-          sheet_scope:"ALL",
-          last_sheet_hash:queuedSheetHash,
-          last_platform_hash:queuedPlatformHash,
-          last_sync_at:queuedNow,
-          last_direction:"sheet_to_platform",
-          last_error:null,
-          conflict_count:Number(queuedState?.conflict_count||0),
-          updated_at:queuedNow
-        },{onConflict:"module,spreadsheet_id,sheet_scope"});
-
-        results[module]={ok:true,rows:summary.imported,direction:"sheet_to_platform"};
-        continue;
-      }
-
       let tabs=await listSheets(sheets,connection.spreadsheet_id);
       let workbook=await loadDriveWorkbook(drive,connection.spreadsheet_id);
       let shHash=await sheetSnapshot(module,workbook,tabs);
@@ -252,19 +230,28 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
         .eq("module",module).eq("spreadsheet_id",connection.spreadsheet_id).eq("sheet_scope","ALL").maybeSingle();
       if(stateError) throw stateError;
 
+      if(state?.last_direction==="sheet_to_platform" && state?.last_error==null &&
+        state?.last_sheet_hash===FORCED_RECONCILIATION_MARKER &&
+        state?.last_platform_hash===FORCED_RECONCILIATION_MARKER){
+        tabs=await listSheets(sheets,connection.spreadsheet_id);
+        workbook=await loadDriveWorkbook(drive,connection.spreadsheet_id);
+        shHash=await sheetSnapshot(module,workbook,tabs);
+        phHash=await platformHash(module,supabase,tabs);
+        const now=new Date().toISOString();
+        await supabase.from("google_sync_states").upsert({
+          module,spreadsheet_id:connection.spreadsheet_id,sheet_scope:"ALL",
+          last_sheet_hash:shHash,last_platform_hash:phHash,last_sync_at:now,
+          last_direction:"noop",last_error:null,
+          conflict_count:Number(state?.conflict_count||0),updated_at:now
+        },{onConflict:"module,spreadsheet_id,sheet_scope"});
+        results[module]={ok:true,rows:0,direction:"noop",reconciled:true};
+        continue;
+      }
+
       let direction:"bootstrap"|"sheet_to_platform"|"platform_to_sheet"|"conflict"|"noop"="noop";
       const forceSheetToPlatform=Boolean(options?.forceSheetToPlatform);
 
-      if(forceSheetToPlatform){
-        const summary=await importLegacyGoogleModule(userId,module);
-        if(summary.errors.length){
-          throw new Error("Forced Google Sheet reconciliation failed: "+summary.errors.slice(0,10).join(" | "));
-        }
-        if(summary.rows>0 && summary.imported===0){
-          throw new Error("Forced Google Sheet reconciliation imported 0 rows from a non-empty source workbook. Export was blocked to protect the Google Sheet data.");
-        }
-        direction="sheet_to_platform";
-      }else if(!state){
+      if(!state){
         const summary=await importLegacyGoogleModule(userId,module);
         if(summary.errors.length){
           throw new Error("Initial Google Sheet import failed: "+summary.errors.slice(0,10).join(" | "));
