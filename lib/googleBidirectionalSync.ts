@@ -264,7 +264,11 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
         direction="bootstrap";
       }else if(shHash===state.last_sheet_hash && phHash===state.last_platform_hash){
         direction="noop";
-      }else if(shHash!==state.last_sheet_hash && phHash===state.last_platform_hash){
+      }else if(shHash!==state.last_sheet_hash){
+        // Sheet changes are always reconciled into the platform. This is the
+        // deterministic automatic policy for concurrent edits as well: the
+        // legacy Google Sheet wins for that cycle, then the resulting platform
+        // state is exported back to the sheet so both sides converge.
         const summary=await importLegacyGoogleModule(userId,module);
         if(summary.errors.length){
           throw new Error("Google Sheet change detected, but import failed: "+summary.errors.slice(0,10).join(" | "));
@@ -274,7 +278,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
         }
         await exportModule(userId,module,connection);
         direction="sheet_to_platform";
-      }else if(shHash===state.last_sheet_hash && phHash!==state.last_platform_hash){
+      }else if(phHash!==state.last_platform_hash){
         await exportModule(userId,module,connection);
         direction="platform_to_sheet";
       }else{
