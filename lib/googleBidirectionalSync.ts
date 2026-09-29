@@ -29,10 +29,10 @@ function parseSheetDate(title:string,fallbackYear?:number){
   if(parts.length===3){
     const a=parts[0],b=parts[1],c=parts[2];
     const na=cleanDay(a),nb=cleanDay(b),nc=cleanDay(c);
-    if(a.length===4 && /^\\d{4}$/.test(a) && nb && nc && nb>=1 && nb<=12 && nc>=1 && nc<=31){
+    if(a.length===4 && Number(a)>=1900 && nb && nc && nb>=1 && nb<=12 && nc>=1 && nc<=31){
       return a+"-"+String(nb).padStart(2,"0")+"-"+String(nc).padStart(2,"0");
     }
-    if(na && nb && c.length===4 && /^\\d{4}$/.test(c) && nb>=1 && nb<=12 && na>=1 && na<=31){
+    if(na && nb && c.length===4 && Number(c)>=1900 && nb>=1 && nb<=12 && na>=1 && na<=31){
       return c+"-"+String(nb).padStart(2,"0")+"-"+String(na).padStart(2,"0");
     }
   }
