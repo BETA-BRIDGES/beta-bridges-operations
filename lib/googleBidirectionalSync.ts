@@ -103,7 +103,7 @@ async function platformSnapshot(module:string,supabase:any,tabs:SheetMeta[]){
   if(DATE_MODULES.has(module)){
     const meta=module==="dailyJobListing"?{table:"jobs",field:"scheduled_date"}:module==="dailyJobDone"?{table:"job_completions",field:"completion_date"}:{table:"stock_transactions",field:"date_installed"};
     const rows=await selectAllRows(supabase,meta.table,meta.field,(q:any)=>q.not(meta.field,"is",null));
-    const dates=Array.from(new Set(rows.map((x:any)=>String(x[meta.field]).slice(0,10)).filter(x=>/^\\d{4}-\\d{2}-\\d{2}$/.test(x)))).sort();
+    const dates=Array.from(new Set(rows.map((x:any)=>String(x[meta.field]).slice(0,10)).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)))).sort();
     const fallbackYear=dates.length?Number(dates[0].slice(0,4)):new Date().getFullYear();
     const parsed=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date) as {title:string;date:string}[];
     const allDates=Array.from(new Set([...parsed.map(x=>x.date),...dates])).sort();
@@ -176,7 +176,7 @@ async function exportModule(userId:string,module:string,connection:Connection){
   if(DATE_MODULES.has(module)){
     const meta=module==="dailyJobListing"?{table:"jobs",field:"scheduled_date"}:module==="dailyJobDone"?{table:"job_completions",field:"completion_date"}:{table:"stock_transactions",field:"date_installed"};
     const dateRows=await selectAllRows(supabase,meta.table,meta.field,(q:any)=>q.not(meta.field,"is",null));
-    const dates=Array.from(new Set(dateRows.map((x:any)=>String(x[meta.field]).slice(0,10)).filter(x=>/^\\d{4}-\\d{2}-\\d{2}$/.test(x)))).sort();
+    const dates=Array.from(new Set(dateRows.map((x:any)=>String(x[meta.field]).slice(0,10)).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)))).sort();
     const fallbackYear=dates.length?Number(dates[0].slice(0,4)):new Date().getFullYear();
     const known=tabs.map(x=>({tab:x,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date);
     for(const date of dates){
