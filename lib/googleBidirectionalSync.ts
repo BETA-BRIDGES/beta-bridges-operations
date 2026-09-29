@@ -163,16 +163,9 @@ async function writeRows(sheets:any,spreadsheetId:string,sheet:SheetMeta,rows:an
   const range=quoteSheetTitle(sheet.title)+"!A1:"+col(width)+rows.length;
   await sheets.spreadsheets.values.clear({spreadsheetId,range:quoteSheetTitle(sheet.title)});
   await sheets.spreadsheets.values.update({spreadsheetId,range,valueInputOption:"USER_ENTERED",requestBody:{values:rows}});
-  if(hideHelper && sheet.sheetId){
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody:{requests:[{updateDimensionProperties:{
-        range:{sheetId:sheet.sheetId,dimension:"COLUMNS",startIndex:width-1,endIndex:width},
-        properties:{hidden:true},
-        fields:"hidden"
-      }}]}
-    });
-  }
+  // Keep the helper ID column visible. Avoid updateDimensionProperties here:
+  // the Google Sheets API can reject the hidden DimensionProperties field,
+  // which would turn a successful data export into a failed sync.
 }
 
 async function exportModule(userId:string,module:string,connection:Connection){
