@@ -16,30 +16,43 @@ function col(n:number){let out="";while(n>0){const r=(n-1)%26;out=String.fromCha
 function quoteSheetTitle(title:string){return `'${title.replace(/'/g,"''")}'`;}
 
 function parseSheetDate(title:string,fallbackYear?:number){
-  const s=title.trim().replace(/\\s+/g," ");
+  const raw=title.trim().replaceAll("_","-").replaceAll("/","-").replaceAll(".","-").replaceAll(" ","-");
+  const parts=raw.split("-").filter(Boolean);
   const monthMap:Record<string,number>={JAN:1,JANUARY:1,FEB:2,FEBRUARY:2,MAR:3,MARCH:3,APR:4,APRIL:4,MAY:5,JUN:6,JUNE:6,JUL:7,JULY:7,AUG:8,AUGUST:8,SEP:9,SEPT:9,SEPTEMBER:9,OCT:10,OCTOBER:10,NOV:11,NOVEMBER:11,DEC:12,DECEMBER:12};
-  let m=s.match(/^(\\d{1,2})[\\/.-](\\d{1,2})[\\/.-](\\d{4})$/);
-  if(m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
-  m=s.match(/^(\\d{4})[\\/.-](\\d{1,2})[\\/.-](\\d{1,2})$/);
-  if(m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
-  m=s.match(/^([A-Za-z]+)[\\s-]*(\\d{1,2})(?:ST|ND|RD|TH)?$/i);
-  if(m){
-    const month=monthMap[m[1].toUpperCase()];
-    if(month && fallbackYear) return String(fallbackYear)+"-"+String(month).padStart(2,"0")+"-"+m[2].padStart(2,"0");
+
+  const cleanDay=(value:string)=>{
+    const digits=value.replace(/[^0-9]/g,"");
+    return digits ? Number(digits) : null;
+  };
+  const cleanMonth=(value:string)=>monthMap[value.replace(/[^A-Za-z]/g,"").toUpperCase()]||null;
+
+  if(parts.length===3){
+    const a=parts[0],b=parts[1],c=parts[2];
+    const na=cleanDay(a),nb=cleanDay(b),nc=cleanDay(c);
+    if(a.length===4 && /^\\d{4}$/.test(a) && nb && nc && nb>=1 && nb<=12 && nc>=1 && nc<=31){
+      return a+"-"+String(nb).padStart(2,"0")+"-"+String(nc).padStart(2,"0");
+    }
+    if(na && nb && c.length===4 && /^\\d{4}$/.test(c) && nb>=1 && nb<=12 && na>=1 && na<=31){
+      return c+"-"+String(nb).padStart(2,"0")+"-"+String(na).padStart(2,"0");
+    }
   }
 
-  // Legacy daily worksheets are also named day-first, e.g. "29TH-SEPT".
-  // These tabs must participate in the sheet hash so edits/additions on them
-  // trigger Sheet -> Platform reconciliation.
-  m=s.match(/^(\\d{1,2})(?:ST|ND|RD|TH)?[\\s-]*([A-Za-z]+)$/i);
-  if(m){
-    const month=monthMap[m[2].toUpperCase()];
-    if(month && fallbackYear) return String(fallbackYear)+"-"+String(month).padStart(2,"0")+"-"+m[1].replace(/(?:ST|ND|RD|TH)$/i,"").padStart(2,"0");
+  if(parts.length===2 && fallbackYear){
+    const firstDay=cleanDay(parts[0]);
+    const firstMonth=cleanMonth(parts[0]);
+    const secondDay=cleanDay(parts[1]);
+    const secondMonth=cleanMonth(parts[1]);
+
+    if(firstMonth && secondDay && secondDay>=1 && secondDay<=31){
+      return String(fallbackYear)+"-"+String(firstMonth).padStart(2,"0")+"-"+String(secondDay).padStart(2,"0");
+    }
+    if(firstDay && secondMonth && firstDay>=1 && firstDay<=31){
+      return String(fallbackYear)+"-"+String(secondMonth).padStart(2,"0")+"-"+String(firstDay).padStart(2,"0");
+    }
   }
 
   return null;
 }
-
 function preferredSheet(module:string,items:SheetMeta[]){
   const visible=items.filter(x=>!x.hidden);
   const exact=visible.find(x=>x.title==="Sheet1");
