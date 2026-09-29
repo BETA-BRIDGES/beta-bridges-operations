@@ -27,6 +27,16 @@ function parseSheetDate(title:string,fallbackYear?:number){
     const month=monthMap[m[1].toUpperCase()];
     if(month && fallbackYear) return String(fallbackYear)+"-"+String(month).padStart(2,"0")+"-"+m[2].padStart(2,"0");
   }
+
+  // Legacy daily worksheets are also named day-first, e.g. "29TH-SEPT".
+  // These tabs must participate in the sheet hash so edits/additions on them
+  // trigger Sheet -> Platform reconciliation.
+  m=s.match(/^(\\d{1,2})(?:ST|ND|RD|TH)?[\\s-]*([A-Za-z]+)$/i);
+  if(m){
+    const month=monthMap[m[2].toUpperCase()];
+    if(month && fallbackYear) return String(fallbackYear)+"-"+String(month).padStart(2,"0")+"-"+m[1].replace(/(?:ST|ND|RD|TH)$/i,"").padStart(2,"0");
+  }
+
   return null;
 }
 
