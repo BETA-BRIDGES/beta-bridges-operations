@@ -81,7 +81,15 @@ async function ensureSheet(sheets:any,spreadsheetId:string,items:SheetMeta[],tit
 }
 
 function canonicalRows(rows:any[][]){
-  return rows.map(row=>row.map(v=>text(v).trim()).reduce((acc:string[],v:string)=>{acc.push(v);return acc},[]));
+  // XLSX export can retain formatted blank rows/columns in the worksheet !ref
+  // even after values.clear(). Strip only trailing empty cells/rows so the
+  // sheet snapshot represents actual table content, matching buildRows().
+  const normalized=rows.map(row=>row.map(v=>text(v).trim()));
+  for(const row of normalized){
+    while(row.length && row[row.length-1]==="") row.pop();
+  }
+  while(normalized.length && normalized[normalized.length-1].length===0) normalized.pop();
+  return normalized;
 }
 function hashPayload(value:unknown){
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
