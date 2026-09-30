@@ -314,6 +314,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
         await exportModule(userId,module,connection);
         direction="platform_to_sheet";
       }else{
+        const conflictCount=Number(state.conflict_count||0)+1;
         await supabase.from("google_sync_states").upsert({
           module,spreadsheet_id:connection.spreadsheet_id,sheet_scope:"ALL",
           last_sheet_hash:shHash,last_platform_hash:phHash,last_sync_at:new Date().toISOString(),
