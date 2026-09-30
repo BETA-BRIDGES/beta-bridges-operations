@@ -11,7 +11,6 @@ export async function GET(request:Request){
   }
   try{
     const results=await runScheduledGoogleSheetImport();
-    const failed=Object.entries(results).filter(([,value]:any)=>!value?.errors?.length);
     const errors=Object.values(results).filter((value:any)=>value?.errors?.length);
     return NextResponse.json({
       ok:errors.length===0,
