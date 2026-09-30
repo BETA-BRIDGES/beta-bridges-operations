@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runScheduledGoogleBidirectionalSync } from "../../../../lib/googleBidirectionalSync";
+import { runScheduledGoogleSheetImport } from "../../../../lib/googleBidirectionalSync";
 
 export const runtime="nodejs";
 
@@ -10,15 +10,17 @@ export async function GET(request:Request){
     return NextResponse.json({error:"Unauthorized cron request."},{status:401});
   }
   try{
-    const forceSheetToPlatform=new URL(request.url).searchParams.get("force") === "sheet_to_platform";
-    const results=await runScheduledGoogleBidirectionalSync({forceSheetToPlatform});
-    const failed=Object.entries(results).filter(([,value]:any)=>!value?.ok);
+    const results=await runScheduledGoogleSheetImport();
+    const failed=Object.entries(results).filter(([,value]:any)=>!value?.errors?.length);
+    const errors=Object.values(results).filter((value:any)=>value?.errors?.length);
     return NextResponse.json({
-      ok:failed.length===0,
+      ok:errors.length===0,
+      mode:"sheet_to_platform",
+      schedule:"*/5 * * * *",
       results,
-      failed:failed.length
-    },{status:failed.length?207:200});
+      failed:errors.length
+    },{status:errors.length?207:200});
   }catch(error){
-    return NextResponse.json({error:error instanceof Error?error.message:"Scheduled Google Sheets sync failed."},{status:500});
+    return NextResponse.json({error:error instanceof Error?error.message:"Scheduled Google Sheet import failed."},{status:500});
   }
 }
