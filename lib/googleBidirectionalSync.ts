@@ -310,6 +310,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
         // sync implementation wrote a non-canonical sheet shape. Re-export the
         // platform's canonical rows so the next snapshot is converged instead
         // of permanently recording an unequal pair and returning noop forever.
+        // This path is deliberately platform-to-sheet so the canonical DB shape wins.
         await exportModule(userId,module,connection);
         direction="platform_to_sheet";
       }else{
