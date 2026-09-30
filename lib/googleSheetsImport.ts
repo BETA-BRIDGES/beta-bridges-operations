@@ -733,7 +733,9 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
   const payloads:any[]=[];
   const exceptions:any[]=[];
 
-  for(const sheet of await loadDriveWorkbook(client,spreadsheetId)){
+  const workbook=await loadDriveWorkbook(client,spreadsheetId);
+  const collisionSlugs=buildSheetCollisionSlugs(workbook);
+  for(const sheet of workbook){
     const info=headerInfo(sheet.rows,expectedHeaders.dailyJobDone);
     if(!info) continue;
     summary.sheets++;
@@ -742,7 +744,7 @@ async function importCompletions(supabase:any,client:drive_v3.Drive,spreadsheetI
     for(let i=info.index+1;i<sheet.rows.length;i++){
       summary.rows++;
       const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);
-      const source=sourceKey("dailyJobDone",sheet.title,i+1);
+      const source=sourceKey("dailyJobDone",sheet.title,i+1,collisionSlugs);
 
       if(!raw["DEVICE ID"] && !raw["NAME"]){
         summary.skipped++;
