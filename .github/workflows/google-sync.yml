@@ -1,4 +1,4 @@
-name: Google Sheets Sync
+name: Google Sheet Import
 
 on:
   schedule:
@@ -9,7 +9,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Google Sheets sync
+      - name: Import Google Sheets into platform
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -20,6 +20,6 @@ jobs:
           body=$(printf '%s\n' "$response" | sed '$d')
           echo "$body"
           if [ "$status" -ge 300 ]; then
-            echo "Sync endpoint returned HTTP $status"
+            echo "Google Sheet import endpoint returned HTTP $status"
             exit 1
           fi
