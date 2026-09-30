@@ -286,7 +286,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
         }
         await exportModule(userId,module,connection);
         direction="bootstrap";
-      }else if(shHash===state.last_sheet_hash && phHash===state.last_platform_hash){
+      }else if(shHash===state.last_sheet_hash && phHash===state.last_platform_hash && shHash===phHash){
         direction="noop";
       }else if(shHash!==state.last_sheet_hash){
         // Sheet changes are always reconciled into the platform. This is the
@@ -305,8 +305,14 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
       }else if(phHash!==state.last_platform_hash){
         await exportModule(userId,module,connection);
         direction="platform_to_sheet";
+      }else if(shHash!==phHash){
+        // The stored snapshots can legitimately become unequal after an older
+        // sync implementation wrote a non-canonical sheet shape. Re-export the
+        // platform's canonical rows so the next snapshot is converged instead
+        // of permanently recording an unequal pair and returning noop forever.
+        await exportModule(userId,module,connection);
+        direction="platform_to_sheet";
       }else{
-        const conflictCount=Number(state.conflict_count||0)+1;
         await supabase.from("google_sync_states").upsert({
           module,spreadsheet_id:connection.spreadsheet_id,sheet_scope:"ALL",
           last_sheet_hash:shHash,last_platform_hash:phHash,last_sync_at:new Date().toISOString(),
