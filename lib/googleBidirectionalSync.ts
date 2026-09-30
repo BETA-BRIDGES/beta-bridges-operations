@@ -168,7 +168,7 @@ async function writeRows(sheets:any,spreadsheetId:string,sheet:SheetMeta,rows:an
   // which would turn a successful data export into a failed sync.
 }
 
-async function exportModule(userId:string,module:string,connection:Connection){
+export async function exportModule(userId:string,module:string,connection:Connection){
   const {supabase,client}=await getGoogleClientForUser(userId);
   const sheets=google.sheets({version:"v4",auth:client});
   const tabs=await listSheets(sheets,connection.spreadsheet_id);
