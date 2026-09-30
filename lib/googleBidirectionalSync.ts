@@ -383,7 +383,17 @@ export async function runScheduledGoogleSheetImport(){
   const tokenUserIds=new Set((tokenRows??[]).map((x:any)=>String(x.user_id)));
   const owner=profiles.find((p:any)=>tokenUserIds.has(String(p.id)));
   if(!owner) throw new Error("No active Super Admin has a connected Google account for scheduled Sheet import.");
-  return importLegacyGoogleSheets(String(owner.id));
+  const results=await importLegacyGoogleSheets(String(owner.id));
+  const now=new Date().toISOString();
+  for(const summary of results as any[]){
+    const hasErrors=Array.isArray(summary?.errors) && summary.errors.length>0;
+    if(!hasErrors){
+      await supabase.from("google_connections")
+        .update({last_sync_at:now,last_error:null,updated_at:now})
+        .eq("module",summary.module);
+    }
+  }
+  return results;
 }
 
 export async function runScheduledGooglePlatformExport(){
@@ -411,6 +421,17 @@ export async function runScheduledGooglePlatformExport(){
 
   const results:Record<string,any>={};
   for(const connection of (connections??[]) as Connection[]){
+    const {data:health}=await supabase.from("google_connections")
+      .select("last_sync_at,last_error")
+      .eq("module",connection.module)
+      .maybeSingle();
+    if(health?.last_error || !health?.last_sync_at){
+      results[connection.module]={
+        ok:true,rows:0,direction:"platform_to_sheet",frequency:"4h",
+        skipped:true,reason:"Skipped because the latest five-minute Sheet import has not completed successfully."
+      };
+      continue;
+    }
     try{
       const rows=await exportModule(String(owner.id),connection.module,connection);
       results[connection.module]={ok:true,rows,direction:"platform_to_sheet",frequency:"4h"};
