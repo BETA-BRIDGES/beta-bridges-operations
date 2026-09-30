@@ -19,7 +19,7 @@ jobs:
         run: |
           response=$(curl -sS -w "\n%{http_code}" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "https://beta-bridges-operations.vercel.app/api/cron/google-platform-export")
+            "https://beta-bridges-operations.vercel.app/api/cron/google-sync?mode=export")
           status=$(printf '%s\n' "$response" | tail -n1)
           body=$(printf '%s\n' "$response" | sed '$d')
           echo "$body"
