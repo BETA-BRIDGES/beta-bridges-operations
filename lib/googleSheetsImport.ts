@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { google, drive_v3 } from "googleapis";
 import * as XLSX from "xlsx";
 import { getGoogleClientForUser } from "./googleServer";
@@ -486,14 +487,10 @@ async function upsertChunks(
       const sourceKeyValue=String(row.legacy_source_key);
       const existingId=existingBySource.get(sourceKeyValue);
       if(existingId && row.id && String(row.id)!==existingId){
-        const copy={...row};
-        delete copy.id;
-        return copy;
+        return {...row,id:existingId};
       }
       if(!existingId && row.id && occupiedIds.has(String(row.id))){
-        const copy={...row};
-        delete copy.id;
-        return copy;
+        return {...row,id:randomUUID()};
       }
       return row;
     });
