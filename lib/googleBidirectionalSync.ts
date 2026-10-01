@@ -217,7 +217,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
 
   const results:Record<string,any>={};
   if(Boolean(options?.forceSheetToPlatform)){
-    for(const connection of (connections??[]) as Connection[]){
+    for(const connection of scopedConnections as Connection[]){
       const module=connection.module;
       try{
         const summary=await importLegacyGoogleModule(userId,module);
@@ -353,7 +353,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
   return results;
 }
 
-export async function runScheduledGoogleBidirectionalSync(options?: { forceSheetToPlatform?: boolean }){
+export async function runScheduledGoogleBidirectionalSync(options?: { forceSheetToPlatform?: boolean; modules?: string[] }){
   const supabase=getServiceSupabase();
   const {data:profiles,error:pe}=await supabase.from("profiles").select("id,role,active,created_at").eq("role","Super Admin").eq("active",true).order("created_at",{ascending:true}).limit(10);
   if(pe) throw pe;
