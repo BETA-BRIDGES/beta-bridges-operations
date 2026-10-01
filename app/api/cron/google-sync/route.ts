@@ -24,7 +24,14 @@ export async function GET(request:Request){
       },{status:failed.length?207:200});
     }
 
-    const results=await runScheduledGoogleBidirectionalSync();
+    const requestedModule=new URL(request.url).searchParams.get("module")||undefined;
+    const allowedModules=["clientData","dailyJobListing","dailyJobDone","usedStock","miscellaneousCharges","techieWeeklyActivity"];
+    if(requestedModule && !allowedModules.includes(requestedModule)){
+      return NextResponse.json({error:"Unsupported sync module."},{status:400});
+    }
+    const results=await runScheduledGoogleBidirectionalSync(
+      requestedModule ? {modules:[requestedModule]} : undefined
+    );
     const failed=Object.values(results).filter((value:any)=>!value?.ok);
     return NextResponse.json({
       ok:failed.length===0,
