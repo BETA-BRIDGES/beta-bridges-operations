@@ -448,8 +448,28 @@ async function upsertChunks(
   const withoutId=rows.filter(row=>!row?.id);
   let imported=0;
 
-  for(let start=0;start<withId.length;start+=chunkSize){
-    const chunk=withId.slice(start,start+chunkSize).map(row=>({...row}));
+  // Legacy source keys identify the same source row across repeated imports.
+  // Upsert rows that have both a stable sync ID and a legacy source key by
+  // source key first; otherwise an old row with the same source key but a
+  // different generated ID can trip the unique legacy_source_key index.
+  const stableBySource=new Map<string,any>();
+  const stableById:any[]=[];
+  for(const row of withId){
+    const key=row?.legacy_source_key;
+    if(key!=null && String(key)!=="") stableBySource.set(String(key),row);
+    else stableById.push(row);
+  }
+
+  const stableSourceRows=Array.from(stableBySource.values());
+  for(let start=0;start<stableSourceRows.length;start+=chunkSize){
+    const chunk=stableSourceRows.slice(start,start+chunkSize).map(row=>({...row}));
+    const {error}=await supabase.from(table).upsert(chunk,{onConflict:"legacy_source_key"});
+    if(error) errors.push(label+" stable-source batch "+(start+1)+"-"+(start+chunk.length)+": "+error.message);
+    else imported+=chunk.length;
+  }
+
+  for(let start=0;start<stableById.length;start+=chunkSize){
+    const chunk=stableById.slice(start,start+chunkSize).map(row=>({...row}));
     const {error}=await supabase.from(table).upsert(chunk,{onConflict:"id"});
     if(error) errors.push(label+" stable-ID batch "+(start+1)+"-"+(start+chunk.length)+": "+error.message);
     else imported+=chunk.length;
@@ -722,7 +742,7 @@ async function importJobs(supabase:any,client:drive_v3.Drive,spreadsheetId:strin
   for(const sheet of workbook){const info=headerInfo(sheet.rows,expectedHeaders.dailyJobListing);if(!info)continue;summary.sheets++;const tabDate=parseLegacyTabDate(sheet.title,legacyYear)||parseDate(sheet.title);
     for(let i=info.index+1;i<sheet.rows.length;i++){summary.rows++;const raw=rowMap(sheet.rows[info.index],sheet.rows[i]);if(!raw["CLIENT NAMES"]){summary.skipped++;continue;}rawRows.push({title:sheet.title,rowNumber:i+1,raw,fallbackDate:tabDate});}}
   await ensureClientsBatch(supabase,rawRows.map(x=>x.raw["CLIENT NAMES"]),clients);
-  const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];if(collisionSlugs.has(slug(x.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobListing",x.title,x.rowNumber));return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber,collisionSlugs),...(validSyncId(x.raw[SYNC_ID_HEADER]) ? {id:validSyncId(x.raw[SYNC_ID_HEADER])} : {}),job_id:"BB-LEGACY-"+(slug(x.title)||"TAB")+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,legacy_client_name:x.raw["CLIENT NAMES"]||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
+  const payloads=rawRows.map(x=>{const officerName=x.raw["TSS OFFICER"];if(collisionSlugs.has(slug(x.title))) collisionCleanupKeys.push(legacySheetSourceKey("dailyJobListing",x.title,x.rowNumber));return{legacy_source_key:sourceKey("dailyJobListing",x.title,x.rowNumber,collisionSlugs),...(validSyncId(x.raw[SYNC_ID_HEADER]) ? {id:validSyncId(x.raw[SYNC_ID_HEADER])} : {}),job_id:"BB-LEGACY-"+(collisionSlugs.has(slug(x.title)) ? slug(x.title)+"-"+stableHash(x.title) : (slug(x.title)||"TAB"))+"-"+x.rowNumber,client_id:clients.get(norm(x.raw["CLIENT NAMES"]))||null,legacy_client_name:x.raw["CLIENT NAMES"]||null,job_type:x.raw["INSURANCE/PERSONAL"]||null,number_of_vehicles:Math.max(1,Math.trunc(numeric(x.raw["NUMBERS OF JOB"]||x.raw["NUMBER OF JOB"]||x.raw["NUMBER OF JOBS"])||1)),vehicle_make:x.raw["VEHICLE MAKE"]||null,scheduled_date:parseDate(x.raw["DATE"],x.fallbackDate),scheduled_time:parseTime(x.raw["TIME"]),location:x.raw["LOCATION"]||null,tss_officer_id:profileMap.get(norm(officerName))||null,tss_officer_name:officerName||null};});
   summary.imported=await upsertChunks(supabase,"jobs",payloads,"legacy_source_key",summary.errors,"Job import");
   if(!summary.errors.length) await cleanupLegacyCollisionKeys(supabase,"jobs",collisionCleanupKeys,summary.errors,"Job import");
   return summary;
