@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  runScheduledGooglePlatformExport,
-  runScheduledGoogleBidirectionalSync
-} from "../../../../lib/googleScheduledSync";
+import { runScheduledGooglePlatformExport } from "../../../../lib/googleScheduledSync";
+import { runScheduledGoogleBidirectionalSync } from "../../../../lib/googleBidirectionalSync";
 
 export const runtime="nodejs";
 
