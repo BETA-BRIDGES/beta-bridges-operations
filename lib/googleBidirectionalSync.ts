@@ -205,7 +205,7 @@ export async function exportModule(userId:string,module:string,connection:Connec
   return rowsWritten;
 }
 
-export async function syncGoogleSheetsBidirectional(userId:string, options?: { forceSheetToPlatform?: boolean }){
+export async function syncGoogleSheetsBidirectional(userId:string, options?: { forceSheetToPlatform?: boolean; modules?: string[] }){
   const {supabase,client}=await getGoogleClientForUser(userId);
   const drive=google.drive({version:"v3",auth:client});
   const sheets=google.sheets({version:"v4",auth:client});
@@ -214,6 +214,10 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
     .eq("active",true)
     .in("sync_direction",["platform_to_sheet","bidirectional"]);
   if(error) throw error;
+  const allowedModules=new Set(options?.modules??[]);
+  const scopedConnections=allowedModules.size
+    ? (connections??[]).filter((connection:any)=>allowedModules.has(String(connection.module)))
+    : (connections??[]);
 
   const results:Record<string,any>={};
   if(Boolean(options?.forceSheetToPlatform)){
@@ -242,7 +246,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
     return results;
   }
 
-  for(const connection of (connections??[]) as Connection[]){
+  for(const connection of scopedConnections as Connection[]){
     const module=connection.module;
     try{
       let tabs=await listSheets(sheets,connection.spreadsheet_id);
