@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { runScheduledGooglePlatformExport } from "../../../../lib/googleScheduledSync";
+import {
+  runScheduledGooglePlatformExport,
+  runScheduledGoogleSheetModuleImport
+} from "../../../../lib/googleScheduledSync";
 import { runScheduledGoogleBidirectionalSync } from "../../../../lib/googleBidirectionalSync";
 
 export const runtime="nodejs";
@@ -29,9 +32,19 @@ export async function GET(request:Request){
     if(requestedModule && !allowedModules.includes(requestedModule)){
       return NextResponse.json({error:"Unsupported sync module."},{status:400});
     }
-    const results=await runScheduledGoogleBidirectionalSync(
-      requestedModule ? {modules:[requestedModule]} : undefined
-    );
+    if(requestedModule){
+      const result=await runScheduledGoogleSheetModuleImport(requestedModule);
+      return NextResponse.json({
+        ok:true,
+        mode:"sheet_to_platform",
+        schedule:"*/5 * * * *",
+        module:requestedModule,
+        results:{[requestedModule]:result},
+        failed:0
+      },{status:200});
+    }
+
+    const results=await runScheduledGoogleBidirectionalSync();
     const failed=Object.values(results).filter((value:any)=>!value?.ok);
     return NextResponse.json({
       ok:failed.length===0,
