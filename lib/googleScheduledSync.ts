@@ -33,6 +33,27 @@ async function resolveConnection(supabase:any,userId:string,connection:any){
     const message=error instanceof Error?error.message:"Unable to read configured Google spreadsheet.";
     if(!/not found|requested entity was not found|404/i.test(message) || !connection.sheet_name) throw error;
 
+    // The legacy Techie Weekly Activity workbook has an explicit restored ID.
+    // Prefer it before broad Drive discovery so a known legacy connection can be repaired
+    // deterministically even when Drive search/listing is incomplete.
+    const legacySpreadsheetId = connection.module === "techieWeeklyActivity"
+      ? "1HgF7uVBjbywDLRdbfLxONh8s-tuAJ7sej6-7apAS2wo"
+      : null;
+    if(legacySpreadsheetId && legacySpreadsheetId !== String(connection.spreadsheet_id)){
+      try{
+        const workbook=await loadDriveWorkbook(drive,legacySpreadsheetId);
+        if(workbook.some((sheet:any)=>sheet.title===String(connection.sheet_name))){
+          const oldSpreadsheetId=String(connection.spreadsheet_id);
+          const now=new Date().toISOString();
+          await supabase.from("google_connections").update({spreadsheet_id:legacySpreadsheetId,last_error:null,updated_at:now}).eq("module",connection.module);
+          await supabase.from("google_sync_states").delete().eq("module",connection.module).eq("spreadsheet_id",oldSpreadsheetId).eq("sheet_scope","ALL");
+          return {...connection,spreadsheet_id:legacySpreadsheetId};
+        }
+      }catch{
+        // Fall through to Drive discovery if the explicit legacy workbook is inaccessible.
+      }
+    }
+
     const files:any[]=[];
     let pageToken:string|undefined;
     do{
