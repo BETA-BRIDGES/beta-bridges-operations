@@ -462,7 +462,42 @@ async function upsertChunks(
 
   const stableSourceRows=Array.from(stableBySource.values());
   for(let start=0;start<stableSourceRows.length;start+=chunkSize){
-    const chunk=stableSourceRows.slice(start,start+chunkSize).map(row=>({...row}));
+    const rawChunk=stableSourceRows.slice(start,start+chunkSize).map(row=>({...row}));
+    const sourceKeys=rawChunk.map(row=>String(row.legacy_source_key)).filter(Boolean);
+    const incomingIds=rawChunk.map(row=>row.id).filter(Boolean).map((id:any)=>String(id));
+
+    const existingBySource=new Map<string,string>();
+    if(sourceKeys.length){
+      const {data,error}=await supabase.from(table).select("id,legacy_source_key").in("legacy_source_key",sourceKeys);
+      if(error) errors.push(label+" source lookup "+(start+1)+"-"+(start+rawChunk.length)+": "+error.message);
+      for(const row of data??[]){
+        if(row?.legacy_source_key && row?.id) existingBySource.set(String(row.legacy_source_key),String(row.id));
+      }
+    }
+
+    const occupiedIds=new Set<string>();
+    if(incomingIds.length){
+      const {data,error}=await supabase.from(table).select("id,legacy_source_key").in("id",Array.from(new Set(incomingIds)));
+      if(error) errors.push(label+" ID lookup "+(start+1)+"-"+(start+rawChunk.length)+": "+error.message);
+      for(const row of data??[]) if(row?.id) occupiedIds.add(String(row.id));
+    }
+
+    const chunk=rawChunk.map(row=>{
+      const sourceKeyValue=String(row.legacy_source_key);
+      const existingId=existingBySource.get(sourceKeyValue);
+      if(existingId && row.id && String(row.id)!==existingId){
+        const copy={...row};
+        delete copy.id;
+        return copy;
+      }
+      if(!existingId && row.id && occupiedIds.has(String(row.id))){
+        const copy={...row};
+        delete copy.id;
+        return copy;
+      }
+      return row;
+    });
+
     const {error}=await supabase.from(table).upsert(chunk,{onConflict:"legacy_source_key"});
     if(error) errors.push(label+" stable-source batch "+(start+1)+"-"+(start+chunk.length)+": "+error.message);
     else imported+=chunk.length;
