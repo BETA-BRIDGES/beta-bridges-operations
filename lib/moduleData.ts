@@ -165,9 +165,14 @@ export async function loadCharges():Promise<ChargeRecord[]>{
   const data=await loadAllRows<any>((from,to)=>supabase!.from("miscellaneous_charges").select("id,charge_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved,client_id").order("created_at",{ascending:false}).range(from,to));
   const rows=(data??[]);
   const ids=Array.from(new Set(rows.map(c=>c.client_id).filter(Boolean)));
-  const {data:clients,error:clientError}=await (ids.length?supabase.from("clients").select("id,name").in("id",ids):Promise.resolve({data:[],error:null} as {data:ChargeClientLookup[];error:null}));
+  // Supabase/PostgREST encodes .in() values into the request URL. The restored
+  // legacy sheet can contain thousands of charge rows, so chunk client lookups
+  // to prevent oversized requests from breaking the entire operational refresh.
+  const clientChunks=Array.from({length:Math.ceil(ids.length/100)},(_,i)=>ids.slice(i*100,(i+1)*100));
+  const clientResults=await Promise.all(clientChunks.map(chunk=>supabase!.from("clients").select("id,name").in("id",chunk)));
+  const clientError=clientResults.find(result=>result.error)?.error??null;
   if(clientError) throw clientError;
-  const clientRows=(clients??[]) as ChargeClientLookup[];
+  const clientRows=clientResults.flatMap(result=>result.data??[]) as ChargeClientLookup[];
   const map=new Map<string,string>((clientRows.map(c=>[c.id,String(c.name??"—")])));
   return (data??[]).map(c=>({id:c.id,chargeId:c.charge_id,client:map.get(c.client_id ?? "")||"—",clientId:c.client_id||null,location:c.location??"",logistics:num(c.logistics),accommodation:num(c.accommodation),swap:num(c.swap),deinstallation:num(c.deinstallation),reinstallation:num(c.reinstallation),healthCheck:num(c.health_check),simReplacement:num(c.sim_replacement),others:num(c.others),status:c.paid_or_approved??"Pending"}));
 }
