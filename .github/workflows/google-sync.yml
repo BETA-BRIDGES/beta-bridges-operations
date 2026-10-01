@@ -7,23 +7,35 @@ on:
   push:
     branches: ["main"]
 
-concurrency:
-  group: google-sheet-import
-  cancel-in-progress: false
-
 jobs:
   sync:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - clientData
+          - dailyJobListing
+          - dailyJobDone
+          - usedStock
+          - miscellaneousCharges
+          - techieWeeklyActivity
+    concurrency:
+      group: google-sheet-import-${{ matrix.module }}
+      cancel-in-progress: false
     steps:
-      - name: Import Google Sheets into platform
+      - name: Import ${{ matrix.module }} into platform
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MODULE: ${{ matrix.module }}
         run: |
-          echo "Waiting briefly for the production deployment to become available..."
-          sleep 90
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            echo "Waiting for the production deployment to become available..."
+            sleep 90
+          fi
           response=$(curl --retry 6 --retry-delay 10 --retry-all-errors -sS -w "\n%{http_code}" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "https://beta-bridges-operations.vercel.app/api/cron/google-sync")
+            "https://beta-bridges-operations.vercel.app/api/cron/google-sync?module=$MODULE")
           status=$(printf '%s\n' "$response" | tail -n1)
           body=$(printf '%s\n' "$response" | sed '$d')
           echo "$body"
