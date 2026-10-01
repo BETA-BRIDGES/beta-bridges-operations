@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   runScheduledGooglePlatformExport,
-  runScheduledGoogleSheetImport
+  runScheduledGoogleBidirectionalSync
 } from "../../../../lib/googleScheduledSync";
 
 export const runtime="nodejs";
@@ -26,15 +26,15 @@ export async function GET(request:Request){
       },{status:failed.length?207:200});
     }
 
-    const results=await runScheduledGoogleSheetImport();
-    const errors=Object.values(results).filter((value:any)=>value?.errors?.length);
+    const results=await runScheduledGoogleBidirectionalSync();
+    const failed=Object.values(results).filter((value:any)=>!value?.ok);
     return NextResponse.json({
-      ok:errors.length===0,
-      mode:"sheet_to_platform",
+      ok:failed.length===0,
+      mode:"bidirectional_reconciliation",
       schedule:"*/5 * * * *",
       results,
-      failed:errors.length
-    },{status:errors.length?207:200});
+      failed:failed.length
+    },{status:failed.length?207:200});
   }catch(error){
     return NextResponse.json({
       error:error instanceof Error?error.message:"Scheduled Google synchronization failed."
