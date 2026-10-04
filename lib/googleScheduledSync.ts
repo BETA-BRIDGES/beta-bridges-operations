@@ -10,7 +10,7 @@ type ScheduledConnection = {
   active:boolean;
 };
 
-async function findGoogleOwner(){
+export async function findGoogleOwner(){
   const supabase=getServiceSupabase();
   const {data:profiles,error:profileError}=await supabase.from("profiles").select("id,role,active,created_at").eq("role","Super Admin").eq("active",true).order("created_at",{ascending:true}).limit(10);
   if(profileError) throw profileError;
@@ -23,7 +23,7 @@ async function findGoogleOwner(){
   return {supabase,userId:String(owner.id)};
 }
 
-async function resolveConnection(supabase:any,userId:string,connection:any){
+export async function resolveConnection(supabase:any,userId:string,connection:any){
   const client=(await getGoogleClientForUser(userId)).client;
   const drive=google.drive({version:"v3",auth:client});
   try{
