@@ -1,0 +1,34 @@
+name: Live Google Legacy Snapshots
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for production deployment
+        run: sleep 120
+
+      - name: Download live legacy workbooks
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          mkdir -p live-snapshots
+          for module in clientData dailyJobListing dailyJobDone usedStock miscellaneousCharges techieWeeklyActivity; do
+            echo "Downloading $module..."
+            curl --retry 8 --retry-delay 10 --retry-all-errors -fsS               -H "Authorization: Bearer $CRON_SECRET"               "https://beta-bridges-operations.vercel.app/api/cron/google-snapshot?module=$module"               -o "live-snapshots/$module-live-legacy.xlsx"
+            test -s "live-snapshots/$module-live-legacy.xlsx"
+          done
+          ls -lh live-snapshots
+
+      - name: Upload live legacy snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-google-legacy-snapshots-${{ github.sha }}
+          path: live-snapshots/*.xlsx
+          retention-days: 7
