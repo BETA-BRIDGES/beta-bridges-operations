@@ -21,17 +21,27 @@ function legacyClientKey(name:string){return `client|legacy|${slug(name)}`}
 function rowsOf(ws:XLSX.WorkSheet):Row[]{
   if(!ws["!ref"]) return [];
   const range=XLSX.utils.decode_range(ws["!ref"]); const out:Row[]=[];
-  for(let r=range.s.r;r<=range.e.r;r++){const row:Row=[];for(let c=range.s.c;c<=range.e.c;c++){const cell=ws[XLSX.utils.encode_cell({r,c})] as XLSX.CellObject|undefined;row.push(cell?text(cell.w??cell.v):"")}out.push(row)}
+  for(let r=range.s.r;r<=range.e.r;r++){const row:Row[]=[];
+    for(let col=range.s.c;col<=range.e.c;col++){
+      const cell=ws[XLSX.utils.encode_cell({r,col})] as XLSX.CellObject|undefined;
+      if(!cell){row.push("");continue;}
+      if(cell.t==="n" && typeof cell.v==="number"){
+        const format=typeof cell.z==="string"?cell.z:"";
+        if(format && XLSX.SSF.is_date(format)) row.push(text(cell.w ?? XLSX.SSF.format(format,cell.v)));
+        else row.push(String(cell.v));
+      }else row.push(text(cell.v ?? cell.w));
+    }
+    out.push(row);
+  }
   return out;
 }
 function workbook(buf:Buffer){const wb=XLSX.read(buf,{type:"buffer",cellDates:false});return wb.SheetNames.map(title=>({title,rows:rowsOf(wb.Sheets[title])}))}
-function nh(v:unknown){return norm(v).replace(/&/g," AND ").replace(/[\\/().,:;_-]+/g," ").replace(/\s+/g," ").trim().replace(/NUMBER OF JOBS/g,"NUMBER OF JOB").replace(/NUMBERS OF JOB/g,"NUMBER OF JOB").replace(/VEHICLE DETAILS/g,"VEH DETAILS").replace(/^CLIENT NAME$/g,"CUSTOMER CLIENT NAME").replace(/^CUSTOMER NAME$/g,"CUSTOMER CLIENT NAME").replace(/^NAME$/g,"CUSTOMER CLIENT NAME").replace(/^EMAIL$/g,"EMAIL ADDRESS").replace(/^PHONE$/g,"PHONE NUMBER").replace(/^MOBILE$/g,"PHONE NUMBER").replace(/^MOBILE NUMBER$/g,"PHONE NUMBER").replace(/^ADDRESS$/g,"LOCATION")}
-function header(rows:Row[],expected:string[],threshold=Math.max(3,Math.ceil(expected.length*.4))){const wanted=new Set(expected.map(nh));let best={i:-1,s:0};for(let i=0;i<Math.min(rows.length,150);i++){let s=0;new Set(rows[i].map(nh).filter(Boolean)).forEach(c=>{if(wanted.has(c))s++});if(s>best.s)best={i,s}}return best.s>=threshold?best.i:-1}
-function mapRow(headers:Row,row:Row){const o:Record<string,string>={};headers.forEach((h,i)=>{const k=nh(h);if(k)o[k]=text(row[i])});return o}
-function parseDate(v:unknown,fallback:string|null=null){const r=text(v);if(!r)return fallback;let m=r.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);if(m)return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;m=r.match(/^(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{4})$/);if(m)return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;if(/\b\d{4}\b/.test(r)){const d=new Date(r);if(!Number.isNaN(d.getTime()))return d.toISOString().slice(0,10)}return fallback}
-function parseTime(v:unknown){const r=norm(v);if(!r)return null;const m=r.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/);if(!m)return null;let h=+m[1];if(m[4]==="PM"&&h<12)h+=12;if(m[4]==="AM"&&h===12)h=0;return h>23||+m[2]>59?null:`${String(h).padStart(2,"0")}:${m[2]}:${m[3]||"00"}`}
-function tabDate(title:string){const m=title.toUpperCase().match(/^(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|SEPT|OCT|NOV|DEC)[A-Z]*[\s\-_]*(\d{1,2})/);if(!m)return null;const months:{[k:string]:number}={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,SEPT:9,OCT:10,NOV:11,DEC:12};return `${new Date().getFullYear()}-${String(months[m[1]]).padStart(2,"0")}-${String(+m[2]).padStart(2,"0")}`}
-
+function nh(v:unknown){return norm(v).replace(/&/g," AND ").replace(/[\\/().,:;_-]+/g," ").replace(/\\s+/g," ").trim().replace(/NUMBER OF JOBS/g,"NUMBER OF JOB").replace(/NUMBERS OF JOB/g,"NUMBER OF JOB").replace(/VEHICLE DETAILS/g,"VEH DETAILS").replace(/CUSTOMER CLIENT NAME/g,"CUSTOMER CLIENT NAME").replace(/CUSTOMER CLIENT/g,"CUSTOMER CLIENT").replace(/^CLIENT NAME$/g,"CUSTOMER CLIENT NAME").replace(/^CUSTOMER NAME$/g,"CUSTOMER CLIENT NAME").replace(/^NAME$/g,"CUSTOMER CLIENT NAME").replace(/^EMAIL$/g,"EMAIL ADDRESS").replace(/^PHONE$/g,"PHONE NUMBER").replace(/^MOBILE NUMBER$/g,"PHONE NUMBER").replace(/^MOBILE$/g,"PHONE NUMBER").replace(/^ADDRESS$/g,"LOCATION").replace(/^CLIENT LOCATION$/g,"LOCATION").replace(/INSTALLER NAME/g,"INSTALLER NAME")}
+function header(rows:Row[],expected:string[],threshold=Math.max(3,Math.ceil(expected.length*.4))){const wanted=new Set(expected.map(nh));let best={i:-1,s:0};for(let i=0;i<rows.length;i++){const found=new Set(rows[i].map(nh).filter(Boolean));let s=0;wanted.forEach(h=>{if(found.has(h))s++});if(s>best.s)best={i,s}}return best.s>=threshold?best.i:-1}
+function mapRow(headers:Row,row:Row){const o:Record<string,string>={};headers.forEach((h,i)=>{const rawKey=norm(h),canonical=nh(h),value=text(row[i]);if(rawKey)o[rawKey]=value;if(canonical)o[canonical]=value;if(canonical==="NUMBER OF JOB"){o["NUMBERS OF JOB"]=value;o["NUMBER OF JOBS"]=value}if(canonical==="VEH DETAILS")o["VEHICLE DETAILS"]=value;if(canonical==="CUSTOMER CLIENT NAME"){o["CUSTOMER/CLIENT NAME"]=value;o["CUSTOMER/ CLIENT NAME"]=value;o["CLIENT NAME"]=value}});return o}
+function parseLegacyTabDate(value:unknown,fallbackYear=new Date().getFullYear()){let raw=text(value).toUpperCase().replace(/[,]/g," ").replace(/\s+/g," ").trim();raw=raw.replace(/\\b1O(TH)\\b/g,"10$1");if(!raw)return null;const months:Record<string,number>={JAN:1,JANUARY:1,FEB:2,FEBRUARY:2,MAR:3,MARCH:3,APR:4,APRIL:4,MAY:5,JUN:6,JUNE:6,JUL:7,JULY:7,JLUY:7,AUG:8,AUGUST:8,SEP:9,SEPT:9,SEPTEMBER:9,OCT:10,OCTOBER:10,NOV:11,NOVEMBER:11,DEC:12,DECEMBER:12};const ordinal=(s:string)=>Number(s.replace(/(ST|ND|RD|TH)$/,""));let m=raw.match(/^(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)[\\s\\-_./]*(\\d{1,2}(?:ST|ND|RD|TH)?)$/);if(m){const month=months[m[1]],day=ordinal(m[2]);if(month&&day>=1&&day<=31)return fallbackYear+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0")}m=raw.match(/^(\\d{1,2}(?:ST|ND|RD|TH)?)[\\s\\-_.\\/]*(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)$/);if(m){const day=ordinal(m[1]),month=months[m[2]];if(month&&day>=1&&day<=31)return fallbackYear+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0")}const compact=raw.replace(/[\\s._\\/]+/g,"-").replace(/-+/g,"-"),md=compact.match(/^([A-Z]+)-?(\\d{1,2})(?:ST|ND|RD|TH)?$/);if(md){const month=months[md[1]],day=Number(md[2]);if(month&&day>=1&&day<=31)return fallbackYear+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0")}if(/\\b\\d{4}\\b/.test(raw)){const d=new Date(raw);if(!Number.isNaN(d.getTime()))return d.toISOString().slice(0,10)}return null}
+function parseDate(v:unknown,fallback:string|null=null){const raw=text(v);if(!raw)return fallback??null;const iso=raw.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/);if(iso)return iso[1]+"-"+iso[2].padStart(2,"0")+"-"+iso[3].padStart(2,"0");const dmy=raw.match(/^(\\d{1,2})[\\/.\\-](\\d{1,2})[\\/.\\-](\\d{4})$/);if(dmy)return dmy[3]+"-"+dmy[2].padStart(2,"0")+"-"+dmy[1].padStart(2,"0");const named=raw.match(/^(\\d{1,2})\\s+([A-Za-z]+)\\s+(\\d{4})$/);if(named){const months=["january","february","march","april","may","june","july","august","september","october","november","december"],idx=months.indexOf(named[2].toLowerCase());if(idx>=0)return named[3]+"-"+String(idx+1).padStart(2,"0")+"-"+named[1].padStart(2,"0")}if(/\\b\\d{4}\\b/.test(raw)){const d=new Date(raw);if(!Number.isNaN(d.getTime()))return d.toISOString().slice(0,10)}return fallback??null}
+function parseTime(v:unknown){const r=norm(v);if(!r)return null;const m=r.match(/^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(AM|PM)?$/);if(!m)return null;let h=+m[1];if(m[4]==="PM"&&h<12)h+=12;if(m[4]==="AM"&&h===12)h=0;return h>23||+m[2]>59||+(m[3]||0)>59?null:`${String(h).padStart(2,"0")}:${m[2]}:${m[3]||"00"}`}
 const expected:Record<ModuleName,string[]>={
  clientData:["S/N","CUSTOMER/CLIENT NAME","CONTACT PERSON","CUSTOMER CATEGORY","PHONE NUMBER","EMAIL ADDRESS","LOCATION","BB SYNC ID"],
  dailyJobListing:["CLIENT NAMES","INSURANCE/PERSONAL","NUMBERS OF JOB","VEHICLE MAKE","TIME","LOCATION","TSS OFFICER","BB SYNC ID"],
@@ -50,7 +60,7 @@ function parseModule(module:ModuleName,buf:Buffer):Rec[]{
  }
  for(const s of sheets){
    const i=module==="miscellaneousCharges"?header(s.rows,expected.miscellaneousCharges,3):header(s.rows,expected[module]);
-   if(i<0)continue; const d=tabDate(s.title);
+   if(i<0)continue; const d=parseLegacyTabDate(s.title);
    for(let r=i+1;r<s.rows.length;r++){const raw=mapRow(s.rows[i],s.rows[r]);const rowNo=r+1;
      if(module==="dailyJobListing" && !raw["CLIENT NAMES"])continue;
      if(module==="dailyJobDone" && !raw["DEVICE ID"] && !raw["CUSTOMER CLIENT NAME"])continue;
