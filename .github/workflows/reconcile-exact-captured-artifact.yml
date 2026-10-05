@@ -18,7 +18,7 @@ jobs:
       - name: Download exact captured artifact
         uses: actions/download-artifact@v5
         with:
-          artifact-ids: 11350773239
+          name: live-google-legacy-snapshots-b0037448e759ea97bc4c212881f3bfca3695e76b\n          run-id: 37323197041
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: live-snapshots
 
