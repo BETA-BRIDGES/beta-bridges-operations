@@ -102,11 +102,11 @@ async function platformFor(supabase:any,module:ModuleName):Promise<Rec[]>{
 export async function POST(req:Request){
  try{
   const secret=process.env.CRON_SECRET||"";const auth=req.headers.get("authorization")||"";if(!secret||auth!==`Bearer ${secret}`)return NextResponse.json({error:"Unauthorized"},{status:401});
-  const form=await req.formData();const runId=text(form.get("run_id"));const sourceRunId=Number(text(form.get("source_run_id"))||0)||null;const commit=text(form.get("source_commit_sha"));const module=text(form.get("module")) as ModuleName;const file=form.get("file");
+  const form=await req.formData();const dryRun=text(new URL(req.url).searchParams.get("dryRun"))==="1";const runId=text(form.get("run_id"));const sourceRunId=Number(text(form.get("source_run_id"))||0)||null;const commit=text(form.get("source_commit_sha"));const module=text(form.get("module")) as ModuleName;const file=form.get("file");
   if(!MODULES.includes(module)||!(file instanceof File))return NextResponse.json({error:"module and XLSX file are required"},{status:400});
   const supabase=getServiceSupabase();const run=runId?{id:runId}:{id:""};
   if(!run.id){const {data,error}=await supabase.from("google_reconciliation_runs").insert({source_run_id:sourceRunId,source_commit_sha:commit,status:"running"}).select("id").single();if(error)throw error;run.id=String(data.id)}
-  const buf=Buffer.from(await file.arrayBuffer());const source=module==="techieWeeklyActivity"?weeklyParse(buf):parseModule(module,buf);const platform=await platformFor(supabase,module);const diffs=compare(source,platform,"id");
+  const buf=Buffer.from(await file.arrayBuffer());const source=module==="techieWeeklyActivity"?weeklyParse(buf):parseModule(module,buf);const platform=await platformFor(supabase,module);const diffs=compare(source,platform,"id"); if(dryRun){return NextResponse.json({module,summary:{source_records:source.length,platform_records:platform.length,missing_in_platform:diffs.filter(d=>d.type==="missing_in_platform").length,extra_in_platform:diffs.filter(d=>d.type==="extra_in_platform").length,changed:diffs.filter(d=>d.type==="changed").length},diffs});}
   const relevant=diffs.filter(d=>d.type!=="extra_in_platform"||d.key.startsWith("sheet|")||d.key.startsWith("client|")||d.key.startsWith("__id__"));
   const payload=relevant.map(d=>({run_id:run.id,module,diff_type:d.type,legacy_source_key:d.key,record_identifier:d.id||null,changed_fields:d.fields,source_record:d.source,platform_record:d.platform}));
   for(let i=0;i<payload.length;i+=250){const {error}=await supabase.from("google_reconciliation_diffs").insert(payload.slice(i,i+250));if(error)throw error}
