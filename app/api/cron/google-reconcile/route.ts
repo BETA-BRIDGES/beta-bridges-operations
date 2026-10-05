@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { getServiceSupabase } from "../../../lib/googleServer";
+import { getServiceSupabase } from "../../../../lib/googleServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
