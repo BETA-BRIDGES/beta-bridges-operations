@@ -21,7 +21,7 @@ function legacyClientKey(name:string){return `client|legacy|${slug(name)}`}
 function rowsOf(ws:XLSX.WorkSheet):Row[]{
   if(!ws["!ref"]) return [];
   const range=XLSX.utils.decode_range(ws["!ref"]); const out:Row[]=[];
-  for(let r=range.s.r;r<=range.e.r;r++){const row:Row[]=[];
+  for(let r=range.s.r;r<=range.e.r;r++){const row:Row=[];
     for(let col=range.s.c;col<=range.e.c;col++){
       const cell=ws[XLSX.utils.encode_cell({r,c:col})] as XLSX.CellObject|undefined;
       if(!cell){row.push("");continue;}
