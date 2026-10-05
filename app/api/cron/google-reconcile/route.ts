@@ -26,7 +26,7 @@ function rowsOf(ws:XLSX.WorkSheet):Row[]{
 }
 function workbook(buf:Buffer){const wb=XLSX.read(buf,{type:"buffer",cellDates:false});return wb.SheetNames.map(title=>({title,rows:rowsOf(wb.Sheets[title])}))}
 function nh(v:unknown){return norm(v).replace(/&/g," AND ").replace(/[\\/().,:;_-]+/g," ").replace(/\s+/g," ").trim().replace(/NUMBER OF JOBS/g,"NUMBER OF JOB").replace(/NUMBERS OF JOB/g,"NUMBER OF JOB").replace(/VEHICLE DETAILS/g,"VEH DETAILS").replace(/^CLIENT NAME$/g,"CUSTOMER CLIENT NAME").replace(/^CUSTOMER NAME$/g,"CUSTOMER CLIENT NAME").replace(/^NAME$/g,"CUSTOMER CLIENT NAME").replace(/^EMAIL$/g,"EMAIL ADDRESS").replace(/^PHONE$/g,"PHONE NUMBER").replace(/^MOBILE$/g,"PHONE NUMBER").replace(/^MOBILE NUMBER$/g,"PHONE NUMBER").replace(/^ADDRESS$/g,"LOCATION")}
-function header(rows:Row[],expected:string[],threshold=Math.max(3,Math.ceil(expected.length*.4))){const wanted=new Set(expected.map(nh));let best={i:-1,s:0};for(let i=0;i<Math.min(rows.length,150);i++){let s=0;for(const c of new Set(rows[i].map(nh).filter(Boolean)))if(wanted.has(c))s++;if(s>best.s)best={i,s}}return best.s>=threshold?best.i:-1}
+function header(rows:Row[],expected:string[],threshold=Math.max(3,Math.ceil(expected.length*.4))){const wanted=new Set(expected.map(nh));let best={i:-1,s:0};for(let i=0;i<Math.min(rows.length,150);i++){let s=0;new Set(rows[i].map(nh).filter(Boolean)).forEach(c=>{if(wanted.has(c))s++});if(s>best.s)best={i,s}}return best.s>=threshold?best.i:-1}
 function mapRow(headers:Row,row:Row){const o:Record<string,string>={};headers.forEach((h,i)=>{const k=nh(h);if(k)o[k]=text(row[i])});return o}
 function parseDate(v:unknown,fallback:string|null=null){const r=text(v);if(!r)return fallback;let m=r.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);if(m)return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;m=r.match(/^(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{4})$/);if(m)return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;if(/\b\d{4}\b/.test(r)){const d=new Date(r);if(!Number.isNaN(d.getTime()))return d.toISOString().slice(0,10)}return fallback}
 function parseTime(v:unknown){const r=norm(v);if(!r)return null;const m=r.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/);if(!m)return null;let h=+m[1];if(m[4]==="PM"&&h<12)h+=12;if(m[4]==="AM"&&h===12)h=0;return h>23||+m[2]>59?null:`${String(h).padStart(2,"0")}:${m[2]}:${m[3]||"00"}`}
@@ -42,7 +42,7 @@ const expected:Record<ModuleName,string[]>={
 
 type Rec={key:string;id:string;fields:Record<string,unknown>};
 function parseModule(module:ModuleName,buf:Buffer):Rec[]{
- const sheets=workbook(buf); const collisions=new Set<string>(); const counts=new Map<string,number>(); for(const s of sheets){const k=slug(s.title);counts.set(k,(counts.get(k)||0)+1)} for(const [k,n] of counts)if(n>1)collisions.add(k);
+ const sheets=workbook(buf); const collisions=new Set<string>(); const counts=new Map<string,number>(); for(const s of sheets){const k=slug(s.title);counts.set(k,(counts.get(k)||0)+1)} for(const [k,n] of Array.from(counts.entries()))if(n>1)collisions.add(k);
  const out:Rec[]=[];
  if(module==="clientData"){
    for(const s of sheets){const i=header(s.rows,expected.clientData,3);if(i<0)continue;for(let r=i+1;r<s.rows.length;r++){const raw=mapRow(s.rows[i],s.rows[r]);const name=raw["CUSTOMER CLIENT NAME"];if(!name)continue;out.push({key:legacyClientKey(name),id:validSyncId(raw["BB SYNC ID"])||"",fields:{name,contact_person:raw["CONTACT PERSON"],category:raw["CUSTOMER CATEGORY"],phone:raw["PHONE NUMBER"],email:raw["EMAIL ADDRESS"],location:raw["LOCATION"]}})}}return out;
@@ -66,7 +66,7 @@ function parseModule(module:ModuleName,buf:Buffer):Rec[]{
 }
 
 function weeklyParse(buf:Buffer):Rec[]{
- const out:Rec[]=[]; const sheets=workbook(buf); const counts=new Map<string,number>();for(const s of sheets){const k=slug(s.title);counts.set(k,(counts.get(k)||0)+1)}const collisions=new Set<string>();for(const[k,n]of counts)if(n>1)collisions.add(k);
+ const out:Rec[]=[]; const sheets=workbook(buf); const counts=new Map<string,number>();for(const s of sheets){const k=slug(s.title);counts.set(k,(counts.get(k)||0)+1)}const collisions=new Set<string>();for(const [k,n] of Array.from(counts.entries()))if(n>1)collisions.add(k);
  for(const s of sheets){let weekRows:number[]=[];for(let i=0;i<s.rows.length;i++)if(s.rows[i].some(c=>/\bWEEK\s*[-:#.]?\s*[1-5]\b|^[1-5](?:ST|ND|RD|TH)?\s+WEEK\b/i.test(c)))weekRows.push(i);if(!weekRows.length)continue;const hi=weekRows[0]>0?weekRows[0]-1:-1;if(hi<0)continue;const headers=s.rows[hi];const month=s.title.match(/([A-Z]+)\s+(\d{4})/i);const months:{[k:string]:number}={JANUARY:1,FEBRUARY:2,MARCH:3,APRIL:4,MAY:5,JUNE:6,JULY:7,AUGUST:8,SEPTEMBER:9,OCTOBER:10,NOVEMBER:11,DECEMBER:12};for(const wi of weekRows){const weekNo=Math.max(1,Math.min(5,Number((s.rows[wi].find(c=>/WEEK/i.test(c))||"").replace(/\D/g,""))||wi-hi));const date=month&&months[month[1].toUpperCase()]?`${month[2]}-${String(months[month[1].toUpperCase()]).padStart(2,"0")}-${String((weekNo-1)*7+1).padStart(2,"0")}`:tabDate(s.title);for(let c=1;c<headers.length;c++){const tech=text(headers[c]);if(!tech||norm(tech)==="TOTAL")continue;const value=text(s.rows[wi][c]);if(!value)continue;const rowNo=(wi+1)*1000+c;out.push({key:sourceKey("techieWeeklyActivity",s.title,rowNo,collisions),id:"",fields:{technician_name:tech,week_start:date,projects_completed:Math.max(0,Math.trunc(num(value))),vehicles_completed:0}})}}}return out;
 }
 
@@ -74,8 +74,8 @@ async function allRows(supabase:any,table:string,select:string){const out:any[]=
 function clean(v:any){if(v===null||v===undefined)return "";if(typeof v==="number")return Number.isFinite(v)?String(v):"";return norm(v)}
 function equal(a:any,b:any){return clean(a)===clean(b)}
 function compare(source:Rec[],platform:Rec[],idField:string){const sm=new Map(source.map(r=>[r.key,r]));const pm=new Map(platform.map(r=>[r.key,r]));const diffs:any[]=[];
- for(const [k,s] of sm){const p=pm.get(k);if(!p){diffs.push({type:"missing_in_platform",key:k,id:s.id,fields:{},source:s.fields,platform:null});continue}const changed:any={};for(const f of Object.keys(s.fields))if(!equal(s.fields[f],p.fields[f]))changed[f]={source:s.fields[f],platform:p.fields[f]};if(Object.keys(changed).length)diffs.push({type:"changed",key:k,id:s.id,fields:changed,source:s.fields,platform:p.fields})}
- for(const [k,p] of pm)if(!sm.has(k))diffs.push({type:"extra_in_platform",key:k,id:p.id,fields:{},source:null,platform:p.fields});
+ for(const [k,s] of Array.from(sm.entries())){const p=pm.get(k);if(!p){diffs.push({type:"missing_in_platform",key:k,id:s.id,fields:{},source:s.fields,platform:null});continue}const changed:any={};for(const f of Object.keys(s.fields))if(!equal(s.fields[f],p.fields[f]))changed[f]={source:s.fields[f],platform:p.fields[f]};if(Object.keys(changed).length)diffs.push({type:"changed",key:k,id:s.id,fields:changed,source:s.fields,platform:p.fields})}
+ for(const [k,p] of Array.from(pm.entries()))if(!sm.has(k))diffs.push({type:"extra_in_platform",key:k,id:p.id,fields:{},source:null,platform:p.fields});
  return diffs;
 }
 
