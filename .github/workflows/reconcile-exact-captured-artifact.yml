@@ -1,0 +1,43 @@
+name: Reconcile Exact Captured Artifact
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Wait for production deployment
+        run: sleep 120
+
+      - name: Download exact captured artifact
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: 11350773239
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: live-snapshots
+
+      - name: Reconcile exact captured artifact
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SOURCE_RUN_ID: "37323197041"
+          SOURCE_COMMIT_SHA: "b0037448e759ea97bc4c212881f3bfca3695e76b"
+        run: |
+          set -euo pipefail
+          base="https://beta-bridges-operations.vercel.app/api/cron/google-reconcile"
+          run_id=""
+          for module in clientData dailyJobListing dailyJobDone usedStock miscellaneousCharges techieWeeklyActivity; do
+            echo "Reconciling $module..."
+            response=$(curl --retry 10 --retry-delay 10 --retry-all-errors -fsS               -H "Authorization: Bearer $CRON_SECRET"               -F "module=$module"               -F "source_run_id=$SOURCE_RUN_ID"               -F "source_commit_sha=$SOURCE_COMMIT_SHA"               ${run_id:+-F "run_id=$run_id"}               -F "file=@live-snapshots/$module-live-legacy.xlsx"               "$base")
+            echo "$response"
+            if [ -z "$run_id" ]; then
+              run_id=$(printf '%s' "$response" | jq -r '.run_id')
+              test -n "$run_id" && test "$run_id" != "null"
+            fi
+          done
+          echo "EXACT_ARTIFACT_RUN_ID=$run_id" >> "$GITHUB_STEP_SUMMARY"
