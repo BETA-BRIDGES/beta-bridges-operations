@@ -25,17 +25,22 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
-          response=$(curl --retry 6 --retry-delay 10 --retry-all-errors -sS -w "\\n%{http_code}" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            "https://beta-bridges-operations.vercel.app/api/cron/google-sync")
-          status=$(printf '%s\n' "$response" | tail -n1)
-          body=$(printf '%s\n' "$response" | sed '$d')
-          printf '%s\n' "$body" | jq .
-          if [ "$status" -ge 300 ]; then
-            echo "Bidirectional Google sync endpoint returned HTTP $status"
-            exit 1
-          fi
-          if ! printf '%s\n' "$body" | jq -e '.ok == true' >/dev/null; then
-            echo "One or more Google Sheets modules failed synchronization."
-            exit 1
-          fi
+          modules=(clientData dailyJobListing dailyJobDone usedStock miscellaneousCharges techieWeeklyActivity)
+          for module in "${modules[@]}"; do
+            echo "Starting isolated bidirectional sync for ${module}"
+            response=$(curl --connect-timeout 15 --max-time 240 -sS -w '\n%{http_code}' \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://beta-bridges-operations.vercel.app/api/cron/google-sync?mode=bidirectional&module=${module}")
+            status=$(printf '%s\n' "$response" | tail -n1)
+            body=$(printf '%s\n' "$response" | sed '$d')
+            printf '%s\n' "$body" | jq .
+            if [ "$status" -ge 300 ]; then
+              echo "Bidirectional sync for ${module} returned HTTP $status"
+              exit 1
+            fi
+            if ! printf '%s\n' "$body" | jq -e --arg module "$module" '.ok == true and .results[$module].ok == true' >/dev/null; then
+              echo "Bidirectional sync failed for ${module}"
+              exit 1
+            fi
+            echo "Verified API success for ${module}"
+          done
