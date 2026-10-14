@@ -193,7 +193,7 @@ export async function buildRowsByDate(module:string,supabase:any):Promise<Map<st
     const om=new Map(officerRows.map((x:any)=>[x.id,text(x.full_name)]));
     for(const x of data??[]){
       const date=String(x.scheduled_date??"").slice(0,10);
-      if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) continue;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
       if(!grouped.has(date)) grouped.set(date,[[...headers.dailyJobListing]]);
       grouped.get(date)!.push([
         cm.get(x.client_id??"")||"—",text(x.job_type),number(x.number_of_vehicles),text(x.vehicle_make),
@@ -208,7 +208,7 @@ export async function buildRowsByDate(module:string,supabase:any):Promise<Map<st
     const dateIndex=module==="dailyJobDone"?1:9;
     for(const row of all.slice(1)){
       const date=String(row[dateIndex]??"").slice(0,10);
-      if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) continue;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
       if(!grouped.has(date)) grouped.set(date,[header]);
       grouped.get(date)!.push(row);
     }
