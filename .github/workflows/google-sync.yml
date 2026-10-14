@@ -1,4 +1,4 @@
-name: Google Sheet Import and Reconciliation
+name: Legacy Google Sheet to Platform Import
 
 on:
   schedule:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: google-sheet-bidirectional-sync-v5
+  group: legacy-sheet-to-platform-import-v1
   cancel-in-progress: false
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
         if: github.event_name == 'push'
         run: sleep 180
 
-      - name: Run controlled six-module bidirectional sync
+      - name: Import legacy Google Sheet into platform (no Sheet writes)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -28,26 +28,26 @@ jobs:
           modules=(clientData dailyJobListing dailyJobDone usedStock miscellaneousCharges techieWeeklyActivity)
           failed=0
           for module in "${modules[@]}"; do
-            echo "Starting isolated bidirectional sync for ${module}"
-            if ! response=$(curl --connect-timeout 15 --max-time 240 -sS -w '\n%{http_code}' \
+            echo "Starting sheet-to-platform import for ${module}"
+            if ! response=$(curl --connect-timeout 15 --max-time 240 -sS -w '\\n%{http_code}' \
               -H "Authorization: Bearer $CRON_SECRET" \
-              "https://beta-bridges-operations.vercel.app/api/cron/google-sync?mode=bidirectional&module=${module}"); then
+              "https://beta-bridges-operations.vercel.app/api/cron/google-sync?mode=import&module=${module}"); then
               echo "Request failed or timed out for ${module}; continuing to next module."
               failed=1
               continue
             fi
-            status=$(printf '%s\n' "$response" | tail -n1)
-            body=$(printf '%s\n' "$response" | sed '$d')
-            printf '%s\n' "$body" | jq . || true
-            if [ "$status" -ge 300 ] || ! printf '%s\n' "$body" | jq -e --arg module "$module" '.ok == true and .results[$module].ok == true' >/dev/null; then
-              echo "Bidirectional sync failed for ${module} (HTTP $status); continuing."
+            status=$(printf '%s\\n' "$response" | tail -n1)
+            body=$(printf '%s\\n' "$response" | sed '$d')
+            printf '%s\\n' "$body" | jq . || true
+            if [ "$status" -ge 300 ] || ! printf '%s\\n' "$body" | jq -e --arg module "$module" '.ok == true and .results[$module].ok == true' >/dev/null; then
+              echo "Sheet-to-platform import failed for ${module} (HTTP $status); continuing."
               failed=1
               continue
             fi
-            echo "Verified API success for ${module}"
+            echo "Verified import success for ${module}"
           done
           if [ "$failed" -ne 0 ]; then
-            echo "One or more modules failed. Database verification is still required."
+            echo "One or more imports failed. No platform-to-Sheet export was attempted."
             exit 1
           fi
-          echo "All six modules passed API-level synchronization checks."
+          echo "All six legacy Sheet imports passed API-level checks. No Sheet writes were performed."
