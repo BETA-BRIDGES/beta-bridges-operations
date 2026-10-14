@@ -15,6 +15,15 @@ export async function GET(request:Request){
   }
   const url=new URL(request.url);
   const mode=url.searchParams.get("mode")||"import";
+  // Safety lock: the legacy Google Sheet is the source of truth. Until write-back
+  // is explicitly re-enabled, this endpoint may import from Sheets only.
+  if(mode!=="import"){
+    return NextResponse.json({
+      error:"Platform-to-Sheet export and bidirectional sync are temporarily disabled to protect the legacy Google Sheet.",
+      mode,
+      writesBlocked:true
+    },{status:423});
+  }
   try{
     if(mode==="export"){
       const results=await runScheduledGooglePlatformExport();
