@@ -204,7 +204,7 @@ export async function buildRowsByDate(module:string,supabase:any):Promise<Map<st
   }
   if(module==="dailyJobDone" || module==="usedStock"){
     const all=await buildRows(module,supabase);
-    const header=all[0]??[];
+    const header:any[]=[...(all[0]??[])];
     const dateIndex=module==="dailyJobDone"?1:9;
     for(const row of all.slice(1)){
       const date=String(row[dateIndex]??"").slice(0,10);
