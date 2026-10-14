@@ -276,11 +276,16 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
 
   for(const connection of scopedConnections as Connection[]){
     const module=connection.module;
+    let stage="listSheets";
     try{
       let tabs=await listSheets(sheets,connection.spreadsheet_id);
+      stage="loadDriveWorkbook";
       let workbook=await loadDriveWorkbook(drive,connection.spreadsheet_id);
+      stage="sheetSnapshot";
       let shHash=await sheetSnapshot(module,workbook,tabs);
+      stage="platformHash";
       let phHash=await platformHash(module,supabase,tabs);
+      stage="loadSyncState";
 
       const {data:state,error:stateError}=await supabase.from("google_sync_states")
         .select("last_sheet_hash,last_platform_hash,last_direction,last_error,conflict_count")
@@ -309,6 +314,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
       const forceSheetToPlatform=Boolean(options?.forceSheetToPlatform);
 
       if(!state){
+        stage="initialSheetImport";
         const summary=await importLegacyGoogleModule(userId,module);
         if(summary.errors.length){
           throw new Error("Initial Google Sheet import failed: "+summary.errors.slice(0,10).join(" | "));
@@ -321,6 +327,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
       }else if(shHash===state.last_sheet_hash && phHash===state.last_platform_hash && shHash===phHash){
         direction="noop";
       }else if(shHash!==state.last_sheet_hash){
+        stage="changedSheetImport";
         // Sheet changes are always reconciled into the platform. This is the
         // deterministic automatic policy for concurrent edits as well: the
         // legacy Google Sheet wins for that cycle, then the resulting platform
@@ -332,9 +339,11 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
         if(summary.rows>0 && summary.imported===0){
           throw new Error("Google Sheet change detected, but 0 rows were imported from a non-empty source workbook. Export was blocked.");
         }
+        stage="exportAfterSheetImport";
         await exportModule(userId,module,connection);
         direction="sheet_to_platform";
       }else if(phHash!==state.last_platform_hash){
+        stage="platformExport";
         await exportModule(userId,module,connection);
         direction="platform_to_sheet";
       }else if(shHash!==phHash){
@@ -377,7 +386,11 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
 
       results[module]={ok:true,rows:0,direction};
     }catch(error){
-      const message=error instanceof Error?error.message:(error&&typeof error==="object"&&"message" in error?String((error as any).message):JSON.stringify(error)||"Bidirectional sync failed.");
+      const e:any=error;
+      const detail=e instanceof Error
+        ? [e.name,e.message,e.stack?.split("\n").slice(0,4).join(" ")].filter(Boolean).join(": ")
+        : [e?.message,e?.code,e?.status,e?.response?.status,e?.response?.data,JSON.stringify(e)].filter(Boolean).map((x:any)=>typeof x==="string"?x:JSON.stringify(x)).join(" | ");
+      const message=stage+": "+(detail||"Unknown error without message or stack");
       await supabase.from("google_connections").update({last_error:message,updated_at:new Date().toISOString()}).eq("module",module);
       results[module]={ok:false,rows:0,error:message};
     }
