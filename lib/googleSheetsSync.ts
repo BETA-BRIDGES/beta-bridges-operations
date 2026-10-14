@@ -174,6 +174,49 @@ export async function buildRows(module:string,supabase:any,dateKey?:string){
   throw new Error(`Unsupported Google Sheets module: ${module}`);
 }
 
+export async function buildRowsByDate(module:string,supabase:any):Promise<Map<string,any[][]>>{
+  const grouped=new Map<string,any[][]>();
+  if(module==="dailyJobListing"){
+    const data=await selectAllRows(supabase,"jobs","id,job_type,number_of_vehicles,vehicle_make,scheduled_date,scheduled_time,location,client_id,tss_officer_id",(q:any)=>q.not("scheduled_date","is",null).order("scheduled_date",{ascending:true}));
+    const clientIds=Array.from(new Set((data??[]).map((x:any)=>x.client_id).filter(Boolean)));
+    const officerIds=Array.from(new Set((data??[]).map((x:any)=>x.tss_officer_id).filter(Boolean)));
+    const clientRows:any[]=[]; const officerRows:any[]=[];
+    for(let i=0;i<clientIds.length;i+=500){
+      const {data:rows,error}=await supabase.from("clients").select("id,name").in("id",clientIds.slice(i,i+500));
+      if(error) throw error; clientRows.push(...(rows??[]));
+    }
+    for(let i=0;i<officerIds.length;i+=500){
+      const {data:rows,error}=await supabase.from("profiles").select("id,full_name").in("id",officerIds.slice(i,i+500));
+      if(error) throw error; officerRows.push(...(rows??[]));
+    }
+    const cm=new Map(clientRows.map((x:any)=>[x.id,text(x.name)]));
+    const om=new Map(officerRows.map((x:any)=>[x.id,text(x.full_name)]));
+    for(const x of data??[]){
+      const date=String(x.scheduled_date??"").slice(0,10);
+      if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) continue;
+      if(!grouped.has(date)) grouped.set(date,[headers.dailyJobListing]);
+      grouped.get(date)!.push([
+        cm.get(x.client_id??"")||"—",text(x.job_type),number(x.number_of_vehicles),text(x.vehicle_make),
+        text(x.scheduled_time),text(x.location),om.get(x.tss_officer_id??"")||"",text(x.id)
+      ]);
+    }
+    return grouped;
+  }
+  if(module==="dailyJobDone" || module==="usedStock"){
+    const all=await buildRows(module,supabase);
+    const header=all[0]??[];
+    const dateIndex=module==="dailyJobDone"?1:9;
+    for(const row of all.slice(1)){
+      const date=String(row[dateIndex]??"").slice(0,10);
+      if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) continue;
+      if(!grouped.has(date)) grouped.set(date,[header]);
+      grouped.get(date)!.push(row);
+    }
+    return grouped;
+  }
+  throw new Error("Date grouping is not supported for module: "+module);
+}
+
 export async function previewGoogleSheets(userId:string){
   const {supabase,client}=await getGoogleClientForUser(userId);
   const sheets=google.sheets({version:"v4",auth:client});
