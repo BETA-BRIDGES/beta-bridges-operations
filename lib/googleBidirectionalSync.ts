@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { google } from "googleapis";
 import { getGoogleClientForUser, getServiceSupabase } from "./googleServer";
 import { loadDriveWorkbook, importLegacyGoogleModule } from "./googleSheetsImport";
-import { buildRows } from "./googleSheetsSync";
+import { buildRows, buildRowsByDate } from "./googleSheetsSync";
 
 type SheetMeta={title:string;hidden?:boolean;sheetId?:number};
 type Connection={module:string;spreadsheet_id:string;sheet_name:string|null;active:boolean};
@@ -115,12 +115,15 @@ async function platformSnapshot(module:string,supabase:any,tabs:SheetMeta[]){
     const fallbackYear=dates.length?Number(dates[0].slice(0,4)):new Date().getFullYear();
     const parsed=tabs.map(x=>({title:x.title,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date) as {title:string;date:string}[];
     const allDates=Array.from(new Set([...parsed.map(x=>x.date),...dates])).sort();
+    const grouped=await buildRowsByDate(module,supabase);
+    const template=grouped.values().next().value as any[][]|undefined;
+    const header=template?.[0] ? [template[0]] : (await buildRows(module,supabase)).slice(0,1);
     const entries:any[]=[];
     for(const date of allDates){
-      let target=parsed.find(x=>x.date===date);
-      if(!target) target={title:legacyTitleFromDate(date),date};
-      const built=await buildRows(module,supabase,date);
-      entries.push([target.title,canonicalRows(built as any[][])]);
+      const target=parsed.find(x=>x.date===date);
+      const title=target?.title||legacyTitleFromDate(date);
+      const rows=grouped.get(date)||header;
+      entries.push([title,canonicalRows(rows as any[][])]);
     }
     return entries.sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
   }
@@ -179,18 +182,44 @@ export async function exportModule(userId:string,module:string,connection:Connec
     const dateRows=await selectAllRows(supabase,meta.table,meta.field,(q:any)=>q.not(meta.field,"is",null));
     const dates=Array.from(new Set(dateRows.map((x:any)=>String(x[meta.field]).slice(0,10)).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)))).sort();
     const fallbackYear=dates.length?Number(dates[0].slice(0,4)):new Date().getFullYear();
-    const known=tabs.map(x=>({tab:x,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date);
-    for(const date of dates){
-      let match=known.find(x=>x.date===date);
-      if(!match){
-        const created=await ensureSheet(sheets,connection.spreadsheet_id,tabs,legacyTitleFromDate(date));
-        match={tab:created,date};
-        known.push(match);
+    const known=tabs.map(x=>({tab:x,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date) as {tab:SheetMeta;date:string}[];
+    const missingDates=dates.filter(date=>!known.some(x=>x.date===date));
+    if(missingDates.length){
+      const {data,error}=await sheets.spreadsheets.batchUpdate({
+        spreadsheetId:connection.spreadsheet_id,
+        requestBody:{requests:missingDates.map(date=>({addSheet:{properties:{title:legacyTitleFromDate(date)}}}))}
+      });
+      if(error) throw error;
+      for(let i=0;i<missingDates.length;i++){
+        const props=data.replies?.[i]?.addSheet?.properties;
+        const created={title:String(props?.title||legacyTitleFromDate(missingDates[i])),hidden:false,sheetId:Number(props?.sheetId)};
+        tabs.push(created);
+        known.push({tab:created,date:missingDates[i]});
       }
-      const built=await buildRows(module,supabase,date);
-      await writeRows(sheets,connection.spreadsheet_id,match.tab,built as any[][],true);
-      rowsWritten+=Math.max(0,built.length-1);
     }
+    const grouped=await buildRowsByDate(module,supabase);
+    const template=grouped.values().next().value as any[][]|undefined;
+    const header=template?.[0] ? [template[0]] : (await buildRows(module,supabase)).slice(0,1);
+    const clearRanges:string[]=[];
+    const updates:any[]=[];
+    for(const date of dates){
+      const match=known.find(x=>x.date===date);
+      if(!match) throw new Error("Unable to resolve worksheet for date "+date);
+      const rows=grouped.get(date)||header;
+      const width=rows.reduce((m,row)=>Math.max(m,Array.isArray(row)?row.length:0),0);
+      if(!width||!rows.length) continue;
+      const range=quoteSheetTitle(match.tab.title)+"!A1:"+col(width)+rows.length;
+      clearRanges.push(quoteSheetTitle(match.tab.title));
+      updates.push({range,values:rows});
+      rowsWritten+=Math.max(0,rows.length-1);
+    }
+    if(clearRanges.length) await sheets.spreadsheets.values.batchClear({
+      spreadsheetId:connection.spreadsheet_id,requestBody:{ranges:clearRanges}
+    });
+    if(updates.length) await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId:connection.spreadsheet_id,
+      requestBody:{valueInputOption:"USER_ENTERED",data:updates}
+    });
   }else{
     const sheetName=connection.sheet_name||preferredSheet(module,tabs);
     if(!sheetName) throw new Error("No target worksheet could be resolved.");
