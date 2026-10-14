@@ -520,10 +520,14 @@ async function upsertChunks(
 
   const unique=new Map<string,any>();
   const passthrough:any[]=[...sourcePassthrough];
+  const conflictColumns=onConflict.split(",").map((column:string)=>column.trim()).filter(Boolean);
   for(const row of Array.from(byLegacySource.values())){
-    const key=row?.[onConflict];
-    if(key==null || String(key)==="") passthrough.push(row);
-    else unique.set(String(key),row);
+    const values=conflictColumns.map((column:string)=>row?.[column]);
+    if(!values.length || values.some((value:any)=>value==null || String(value)==="")){
+      passthrough.push(row);
+      continue;
+    }
+    unique.set(values.map((value:any)=>String(value)).join("|"),row);
   }
   const deduped=passthrough.concat(Array.from(unique.values()));
   for(let start=0;start<deduped.length;start+=chunkSize){
