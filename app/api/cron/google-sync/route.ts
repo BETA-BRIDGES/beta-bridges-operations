@@ -13,7 +13,8 @@ export async function GET(request:Request){
   if(!configured || authorization!==`Bearer ${configured}`){
     return NextResponse.json({error:"Unauthorized cron request."},{status:401});
   }
-  const mode=new URL(request.url).searchParams.get("mode")||"import";
+  const url=new URL(request.url);
+  const mode=url.searchParams.get("mode")||"import";
   try{
     if(mode==="export"){
       const results=await runScheduledGooglePlatformExport();
@@ -27,11 +28,26 @@ export async function GET(request:Request){
       },{status:failed.length?207:200});
     }
 
-    const requestedModule=new URL(request.url).searchParams.get("module")||undefined;
+    const requestedModule=url.searchParams.get("module")||undefined;
     const allowedModules=["clientData","dailyJobListing","dailyJobDone","usedStock","miscellaneousCharges","techieWeeklyActivity"];
     if(requestedModule && !allowedModules.includes(requestedModule)){
       return NextResponse.json({error:"Unsupported sync module."},{status:400});
     }
+
+    // Allow a single module to be reconciled independently so one slow Google API
+    // operation cannot hold the full six-module scheduled run open until timeout.
+    if(mode==="bidirectional" && requestedModule){
+      const results=await runScheduledGoogleBidirectionalSync({modules:[requestedModule]});
+      const failed=Object.values(results).filter((value:any)=>!value?.ok);
+      return NextResponse.json({
+        ok:failed.length===0,
+        mode:"bidirectional_reconciliation",
+        module:requestedModule,
+        results,
+        failed:failed.length
+      },{status:failed.length?207:200});
+    }
+
     if(requestedModule){
       const result=await runScheduledGoogleSheetModuleImport(requestedModule);
       return NextResponse.json({
