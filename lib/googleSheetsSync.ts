@@ -134,9 +134,17 @@ export async function buildRows(module:string,supabase:any,dateKey?:string){
   if(module==="miscellaneousCharges"){
     const data=await selectAllRows(supabase,"miscellaneous_charges","id,charge_id,client_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved",(q:any)=>q.order("created_at",{ascending:false}));
     const ids=Array.from(new Set((data??[]).map((x:any)=>x.client_id).filter(Boolean)));
-    const {data:clients,error:ce}=ids.length?await supabase.from("clients").select("id,name").in("id",ids):{data:[],error:null};
-    if(ce) throw ce;
-    const cm=new Map((clients??[]).map((x:any)=>[x.id,text(x.name)]));
+    // Keep PostgREST query URLs bounded. A miscellaneous-charge row can
+    // reference a different client, so large legacy datasets can produce
+    // thousands of IDs; one oversized .in() filter can fail with an opaque
+    // platformHash error even though the charges query itself succeeds.
+    const clients:any[]=[];
+    for(let i=0;i<ids.length;i+=500){
+      const {data:rows,error:ce}=await supabase.from("clients").select("id,name").in("id",ids.slice(i,i+500));
+      if(ce) throw ce;
+      clients.push(...(rows??[]));
+    }
+    const cm=new Map(clients.map((x:any)=>[x.id,text(x.name)]));
     return [headers.miscellaneousCharges,...(data??[]).map((x:any,i:number)=>[
       i+1,cm.get(x.client_id??"")||"—",text(x.location),number(x.logistics),number(x.accommodation),number(x.swap),
       number(x.deinstallation),number(x.reinstallation),number(x.health_check),number(x.sim_replacement),number(x.others),text(x.paid_or_approved),text(x.id)
