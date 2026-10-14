@@ -377,7 +377,7 @@ export async function syncGoogleSheetsBidirectional(userId:string, options?: { f
 
       results[module]={ok:true,rows:0,direction};
     }catch(error){
-      const message=error instanceof Error?error.message:"Bidirectional sync failed.";
+      const message=error instanceof Error?error.message:(error&&typeof error==="object"&&"message" in error?String((error as any).message):JSON.stringify(error)||"Bidirectional sync failed.");
       await supabase.from("google_connections").update({last_error:message,updated_at:new Date().toISOString()}).eq("module",module);
       results[module]={ok:false,rows:0,error:message};
     }
