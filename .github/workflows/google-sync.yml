@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: google-sheet-bidirectional-sync-v4
+  group: google-sheet-bidirectional-sync-v5
   cancel-in-progress: false
 
 jobs:
