@@ -32,7 +32,18 @@ jobs:
           run_id=""
           for module in clientData dailyJobListing dailyJobDone usedStock miscellaneousCharges techieWeeklyActivity; do
             echo "Reconciling $module..."
-            response=$(curl --retry 8 --retry-delay 10 --retry-all-errors -fsS               -H "Authorization: Bearer $CRON_SECRET"               -F "module=$module"               -F "source_run_id=$SOURCE_RUN_ID"               -F "source_commit_sha=$SOURCE_COMMIT_SHA"               ${run_id:+-F "run_id=$run_id"}               -F "file=@live-snapshots/$module-live-legacy.xlsx"               "$base")
+            final_module=0
+            if [ "$module" = "techieWeeklyActivity" ]; then final_module=1; fi
+            response=$(curl --retry 8 --retry-delay 10 --retry-all-errors -fsS \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -F "module=$module" \
+              -F "source_run_id=$SOURCE_RUN_ID" \
+              -F "source_commit_sha=$SOURCE_COMMIT_SHA" \
+              -F "batch=1" \
+              -F "final_module=$final_module" \
+              ${run_id:+-F "run_id=$run_id"} \
+              -F "file=@live-snapshots/$module-live-legacy.xlsx" \
+              "$base")
             echo "$response"
             if [ -z "$run_id" ]; then
               run_id=$(printf '%s' "$response" | jq -r '.run_id')
