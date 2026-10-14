@@ -100,18 +100,26 @@ async function platformFor(supabase:any,module:ModuleName):Promise<Rec[]>{
 }
 
 export async function POST(req:Request){
+ let activeRunId="";
  try{
   const secret=process.env.CRON_SECRET||"";const auth=req.headers.get("authorization")||"";if(!secret||auth!==`Bearer ${secret}`)return NextResponse.json({error:"Unauthorized"},{status:401});
-  const form=await req.formData();const dryRun=text(new URL(req.url).searchParams.get("dryRun"))==="1";const runId=text(form.get("run_id"));const sourceRunId=Number(text(form.get("source_run_id"))||0)||null;const commit=text(form.get("source_commit_sha"));const module=text(form.get("module")) as ModuleName;const file=form.get("file");
+  const form=await req.formData();const dryRun=text(new URL(req.url).searchParams.get("dryRun"))==="1";const runId=text(form.get("run_id"));const sourceRunId=Number(text(form.get("source_run_id"))||0)||null;const commit=text(form.get("source_commit_sha"));const module=text(form.get("module")) as ModuleName;const file=form.get("file");const batch=text(form.get("batch"))==="1";const finalModule=text(form.get("final_module"))==="1";
   if(!MODULES.includes(module)||!(file instanceof File))return NextResponse.json({error:"module and XLSX file are required"},{status:400});
-  const supabase=getServiceSupabase();const run=runId?{id:runId}:{id:""};
-  if(!run.id){const {data,error}=await supabase.from("google_reconciliation_runs").insert({source_run_id:sourceRunId,source_commit_sha:commit,status:"running"}).select("id").single();if(error)throw error;run.id=String(data.id)}
+  const supabase=getServiceSupabase();const run=runId?{id:runId}:{id:""};if(runId)activeRunId=runId;
   const buf=Buffer.from(await file.arrayBuffer());const source=module==="techieWeeklyActivity"?weeklyParse(buf):parseModule(module,buf);const platform=await platformFor(supabase,module);const diffs=compare(source,platform,"id"); if(dryRun){return NextResponse.json({module,summary:{source_records:source.length,platform_records:platform.length,missing_in_platform:diffs.filter(d=>d.type==="missing_in_platform").length,extra_in_platform:diffs.filter(d=>d.type==="extra_in_platform").length,changed:diffs.filter(d=>d.type==="changed").length},diffs:diffs.map(d=>({type:d.type,key:d.key,id:d.id||null,fields:d.fields}))});}
+  if(!run.id){const {data,error}=await supabase.from("google_reconciliation_runs").insert({source_run_id:sourceRunId,source_commit_sha:commit,status:"running",summary:{}}).select("id").single();if(error)throw error;run.id=String(data.id);activeRunId=run.id}
   const relevant=diffs.filter(d=>d.type!=="extra_in_platform"||d.key.startsWith("sheet|")||d.key.startsWith("client|")||d.key.startsWith("__id__"));
   const payload=relevant.map(d=>({run_id:run.id,module,diff_type:d.type,legacy_source_key:d.key,record_identifier:d.id||null,changed_fields:d.fields,source_record:d.source,platform_record:d.platform}));
   for(let i=0;i<payload.length;i+=250){const {error}=await supabase.from("google_reconciliation_diffs").insert(payload.slice(i,i+250));if(error)throw error}
   const summary={source_records:source.length,platform_records:platform.length,missing_in_platform:diffs.filter(d=>d.type==="missing_in_platform").length,extra_in_platform:diffs.filter(d=>d.type==="extra_in_platform").length,changed:diffs.filter(d=>d.type==="changed").length};
-  await supabase.from("google_reconciliation_runs").update({status:"complete",summary}).eq("id",run.id);
-  return NextResponse.json({run_id:run.id,module,summary});
- }catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Reconciliation failed"},{status:500})}
+  const {data:priorRun,error:priorRunError}=await supabase.from("google_reconciliation_runs").select("summary").eq("id",run.id).maybeSingle();if(priorRunError)throw priorRunError;
+  const combinedSummary={...(priorRun?.summary&&typeof priorRun.summary==="object"?priorRun.summary:{}),[module]:summary};
+  const runStatus=batch?(finalModule?"complete":"running"):"complete";
+  const {error:finishError}=await supabase.from("google_reconciliation_runs").update({status:runStatus,summary:combinedSummary}).eq("id",run.id);if(finishError)throw finishError;
+  return NextResponse.json({run_id:run.id,module,summary,run_status:runStatus});
+ }catch(error){
+  const message=error instanceof Error?error.message:"Reconciliation failed";
+  if(activeRunId){try{await getServiceSupabase().from("google_reconciliation_runs").update({status:"failed",summary:{error:message}}).eq("id",activeRunId);}catch{}}
+  return NextResponse.json({error:message},{status:500})
+ }
 }
