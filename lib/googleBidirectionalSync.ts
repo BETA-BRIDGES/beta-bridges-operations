@@ -185,11 +185,10 @@ export async function exportModule(userId:string,module:string,connection:Connec
     const known=tabs.map(x=>({tab:x,date:parseSheetDate(x.title,fallbackYear)})).filter(x=>x.date) as {tab:SheetMeta;date:string}[];
     const missingDates=dates.filter(date=>!known.some(x=>x.date===date));
     if(missingDates.length){
-      const {data,error}=await sheets.spreadsheets.batchUpdate({
+      const {data}=await sheets.spreadsheets.batchUpdate({
         spreadsheetId:connection.spreadsheet_id,
         requestBody:{requests:missingDates.map(date=>({addSheet:{properties:{title:legacyTitleFromDate(date)}}}))}
       });
-      if(error) throw error;
       for(let i=0;i<missingDates.length;i++){
         const props=data.replies?.[i]?.addSheet?.properties;
         const created={title:String(props?.title||legacyTitleFromDate(missingDates[i])),hidden:false,sheetId:Number(props?.sheetId)};
