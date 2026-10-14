@@ -210,7 +210,7 @@ export async function buildRowsByDate(module:string,supabase:any):Promise<Map<st
       const date=String(row[dateIndex]??"").slice(0,10);
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
       if(!grouped.has(date)) grouped.set(date,[header]);
-      grouped.get(date)!.push(row);
+      grouped.get(date)!.push([...row]);
     }
     return grouped;
   }
