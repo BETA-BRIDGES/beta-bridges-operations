@@ -134,13 +134,12 @@ export async function buildRows(module:string,supabase:any,dateKey?:string){
   if(module==="miscellaneousCharges"){
     const data=await selectAllRows(supabase,"miscellaneous_charges","id,charge_id,client_id,location,logistics,accommodation,swap,deinstallation,reinstallation,health_check,sim_replacement,others,paid_or_approved",(q:any)=>q.order("created_at",{ascending:false}));
     const ids=Array.from(new Set((data??[]).map((x:any)=>x.client_id).filter(Boolean)));
-    // Keep PostgREST query URLs bounded. A miscellaneous-charge row can
-    // reference a different client, so large legacy datasets can produce
-    // thousands of IDs; one oversized .in() filter can fail with an opaque
-    // platformHash error even though the charges query itself succeeds.
+    // Keep PostgREST query URLs safely below proxy limits. This module can
+    // reference thousands of distinct clients; 500 UUIDs per .in() filter can
+    // exceed URL limits and surface as an empty-message platformHash error.
     const clients:any[]=[];
-    for(let i=0;i<ids.length;i+=500){
-      const {data:rows,error:ce}=await supabase.from("clients").select("id,name").in("id",ids.slice(i,i+500));
+    for(let i=0;i<ids.length;i+=100){
+      const {data:rows,error:ce}=await supabase.from("clients").select("id,name").in("id",ids.slice(i,i+100));
       if(ce) throw ce;
       clients.push(...(rows??[]));
     }
