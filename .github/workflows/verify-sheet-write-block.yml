@@ -1,0 +1,44 @@
+name: Verify legacy Sheet write protection
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-sheet-write-block.yml"
+      - "app/api/cron/google-sync/route.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-write-block:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify authenticated export and bidirectional requests are rejected
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "CRON_SECRET repository secret is missing."
+            exit 1
+          fi
+
+          base="https://beta-bridges-operations.vercel.app/api/cron/google-sync"
+          for mode in export bidirectional; do
+            response=$(curl --connect-timeout 10 --max-time 20 -sS -w '\n%{http_code}' \
+              -H "Authorization: Bearer ${CRON_SECRET}" "${base}?mode=${mode}")
+            status=$(printf '%s\n' "$response" | tail -n1)
+            body=$(printf '%s\n' "$response" | sed '$d')
+            echo "Mode=$mode HTTP=$status"
+            printf '%s\n' "$body" | jq '{error, mode, writesBlocked}'
+            if [ "$status" != "423" ] || ! printf '%s\n' "$body" | jq -e '.writesBlocked == true' >/dev/null; then
+              echo "FAIL: ${mode} was not blocked as expected."
+              exit 1
+            fi
+            echo "PASS: ${mode} rejected with HTTP 423; write-back blocked."
+          done
