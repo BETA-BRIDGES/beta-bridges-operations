@@ -1,11 +1,9 @@
 name: Legacy Google Sheet to Platform Import
 
+# Temporarily manual-only while the Supabase database is recovering.
+# Re-enable schedule and push triggers only after SQL health checks pass.
+
 on:
-  schedule:
-    - cron: "*/5 * * * *"
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
@@ -16,10 +14,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for production deployment after a push
-        if: github.event_name == 'push'
-        run: sleep 180
-
       - name: Import legacy Google Sheet into platform (no Sheet writes)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
